@@ -225,14 +225,14 @@ function analyse() {
     estMonths: series.filter(s => s.est).length, unit: UNIT[mode] };
 }
 const SNAME = { harm: ['Model prediction (from MODIS)', 'True VIIRS'], raw: ['MODIS', 'VIIRS'] };
-const lines = a => st.view === 'one' && a.harm ? [{ key: 'viirs', color: 'heat', name: 'True VIIRS (consolidated, 2012 on)' }] :
+const lines = a => st.view === 'one' && a.harm ? [{ key: 'modis', color: 0, name: 'True MODIS (2000 on)' }, { key: 'viirs', color: 'heat', name: 'True VIIRS (consolidated, 2012 on)' }] :
   [0, 1].filter(j => a.per[j].on).map(j => ({ key: j, color: j, name: SNAME[a.mode][j] }));
 // model prediction overlay (Combined view): the other sensor run through the model, with its 90% range from held-out-year errors
 const predOf = a => st.view === 'one' && a.harm && META.harmonization ? { q: META.harmonization.interval90_log || null, name: 'Model prediction (from MODIS)' } : null;
 const slines = a => a.harm ? [{ key: 'comb', color: 'heat', name: 'Fire activity (true VIIRS, or model prediction before 2012)' }] : lines(a);
 const band = (PR, v) => PR && PR.q && v != null ? [v * Math.exp(PR.q[0]), v * Math.exp(PR.q[1])] : null;
 const perDay = () => 'hotspots / day';
-const pick = (s, key) => key === 'comb' ? s.comb : key === 'viirs' ? s.viirs : s.rate[key];
+const pick = (s, key) => key === 'comb' ? s.comb : key === 'viirs' ? s.viirs : key === 'modis' ? s.modis : s.rate[key];
 const shown = (a, s) => { if (a.harm) return s.comb; const v = lines(a).map(l => pick(s, l.key)).filter(x => x != null); return v.length ? Math.max(...v) : null; };
 const peakOf = a => a.series.reduce((b, s) => shown(a, s) != null && (!b || shown(a, s) > shown(a, b)) ? s : b, null);
 
@@ -259,7 +259,7 @@ function monthlyChart(a, W, P, interactive) {
   const t0 = S[0].t - 1 / 24, t1 = S[S.length - 1].t + 1 / 24;
   const x = t => m.l + (t - t0) / Math.max(t1 - t0, 1e-9) * (W - m.l - m.r), y = (v, top) => Hh - m.b - v / top * (Hh - m.t - m.b);
   const PR = predOf(a);
-  const top = axisY(svg, P, m, W, Math.max(0, ...S.map(s => Math.max(shown(a, s) ?? 0, s.viirs ?? 0, PR ? s.pred ?? 0 : 0))), y);
+  const top = axisY(svg, P, m, W, Math.max(0, ...S.map(s => Math.max(shown(a, s) ?? 0, s.viirs ?? 0, a.harm ? s.modis ?? 0 : 0, PR ? s.pred ?? 0 : 0))), y);
   if (a.harm) {   // shade the months before VIIRS, where only the prediction exists
     let i = 0;
     while (i < S.length) { if (!S[i].est) { i++; continue; } let j = i; while (j + 1 < S.length && S[j + 1].est) j++;
@@ -318,10 +318,9 @@ function hoverLine(svg, a, L, x, y, top, m, Hh, W) {
     g.innerHTML = ''; g.append(el('line', { x1: x(s.t), x2: x(s.t), y1: m.t, y2: Hh - m.b, stroke: css('--text-3'), 'stroke-width': 1 }));
     L.forEach(l => { const v = pick(s, l.key); if (v != null) g.append(el('circle', { cx: x(s.t), cy: y(v, top), r: 4.5, fill: css(cssOf(l.color)), stroke: css('--surface'), 'stroke-width': 2 })); });
     const rows = L.map(l => { const v = pick(s, l.key);
-      return `<i class="sw" style="background:var(${cssOf(l.color)})"></i>${l.key === 'viirs' ? 'True VIIRS' : SENS[l.key]} ${v == null ? `<span class="m">${l.key === 'viirs' && s.m < 144 ? 'not launched yet' : 'no sampled days'}</span>` : fmt(v) + ' / day'}`; });
+      return `<i class="sw" style="background:var(${cssOf(l.color)})"></i>${{ viirs: 'True VIIRS', modis: 'True MODIS' }[l.key] || SENS[l.key]} ${v == null ? `<span class="m">${l.key === 'viirs' && s.m < 144 ? 'not launched yet' : 'no sampled days'}</span>` : fmt(v) + ' / day'}`; });
     const PRd = predOf(a), bb = band(PRd, s.pred);
     if (PRd && s.pred != null) rows.push(`<i class="sw dash"></i><b>Model prediction</b> ${fmt(s.pred)} / day` + (bb ? ` <span class="m">90%: ${fmt(bb[0])}–${fmt(bb[1])}</span>` : ''));
-    if (a.harm && s.modis != null) rows.push(`<span class="m">Model input: MODIS saw ${fmt(s.modis)} / day</span>`);
     const fs = s.fires.slice(0, 2).map(f => `${esc(f.name)} <span class="m">${acresS(f.acres)} ac</span>`);
     tip.innerHTML = `<b>${monLabel(s.m)}${s.est ? ' <span class="m">· before VIIRS: prediction only</span>' : ''}</b>${rows.join('<br>')}${fs.length ? '<br><span class="m">Burning:</span> ' + fs.join(', ') : ''}`;
     tip.style.display = 'block'; const sx = x(s.t) * r.width / W;
@@ -544,10 +543,11 @@ function render() {
   const PR = a.series.some(x => x.pred != null) ? predOf(a) : null;
   $('leg1').innerHTML = lines(a).map(l => `<span><i class="sw" style="background:var(${cssOf(l.color)})"></i>${l.name}</span>`).join('') +
     (PR ? `<span><i class="sw dash"></i><b>${PR.name}</b></span>` + (PR.q ? '<span><i class="sw bandsw"></i>90% range of the prediction</span>' : '') : '');
-  $('chnote').textContent = !PR && a.harm ? 'True VIIRS, hotspots per sampled day. There is no MODIS here to predict from. Labels mark the largest recorded fires.' : PR ? 'Solid red: true VIIRS from 2012, consolidated (one fire per 1 km cell per satellite pass), in hotspots per sampled day. ' +
-    'Dashed: the model prediction of the same thing, made only from MODIS, back to 2000; grey is its 90% range. ' +
-    (a.estMonths ? 'Shaded months are before VIIRS, so the prediction is the only record there. ' : '') +
-    'Where solid and dashed overlap, the model got it right. Labels mark the largest recorded fires.' :
+  $('chnote').textContent = !PR && a.harm ? 'True VIIRS, hotspots per sampled day. There is no MODIS here to predict from. Labels mark the largest recorded fires.' : PR ? 'Blue: true MODIS, as observed. Red: true VIIRS from 2012, consolidated (one fire per 1 km cell per satellite pass). Both in hotspots per sampled day. ' +
+    'Dashed: the model prediction of VIIRS. The model was trained on true VIIRS (2012 on) and is given only MODIS, so it can run back to 2000; grey is its 90% range. ' +
+    (a.estMonths ? 'Shaded months are before VIIRS, so there the prediction is the only VIIRS record. ' : '') +
+    'MODIS sits lower because its 1 km pixels see fewer, larger fires. ' +
+'Where red and dashed overlap, the model got it right. Labels mark the largest recorded fires.' :
     'Each sensor separately, unconverted (this file has no viirs_equiv column).';
   renderHarm(a, P);
 }
@@ -630,7 +630,7 @@ th,td{padding:5px 8px;text-align:right;border-bottom:1px solid #e9e7e2}th:first-
 <p>${boxS()} · ${dayStr(st.from)} to ${dayStr(st.to)} · ${A.unit}${st.sens[0] && st.sens[1] ? '' : ' · ' + SENS.filter((_, j) => st.sens[j]).join('') + ' only'}</p>
 <p class="k">Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC. Reopen this view: <a href="${esc(location.href)}">${esc(location.href)}</a></p>
 <div class="tiles">${tilesHTML(A)}</div>
-<h2>Fire activity over time: true VIIRS vs model prediction</h2>${sv('monthly')}
+<h2>Fire activity over time: true MODIS, true VIIRS and model prediction</h2>${sv('monthly')}
 <h2>Fire season</h2>${sv('season')}
 <h2>Where</h2>${mapSVG(A, W, P).outerHTML}<p class="k">Darker cells = more fire per sampled day; rings = the largest recorded fires. No basemap.</p>
 <h2>Recorded fires</h2><table>${firesHTML(A, 25)}</table>${A.fires.length > 25 ? `<p class="k">25 largest of ${A.fires.length}.</p>` : ''}
