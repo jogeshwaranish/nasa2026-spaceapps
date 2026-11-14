@@ -89,12 +89,18 @@ a { color: inherit; }
   <div class="card">
     <div class="row">
       <h2>Fire detections per day</h2>
-      <div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (Terra + Aqua)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (Suomi NPP)</span></div>
+      <div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (Terra + Aqua)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (Suomi NPP)</span><span id="hleg"><i class="sw" style="background:repeating-linear-gradient(90deg,var(--viirs) 0 4px,transparent 4px 7px)"></i>MODIS → VIIRS-equivalent (model)</span></div>
       <span class="grow"></span>
       <div class="seg" id="mode"><button data-m="month" aria-pressed="true">Monthly</button><button data-m="year" aria-pressed="false">Yearly</button></div>
     </div>
     <div class="chartwrap"><svg id="chart"></svg><div id="tip"></div></div>
     <p class="note">Average detections per day over the sampled days in each period. Click the chart to show that year on the maps.</p>
+  </div>
+
+  <div class="card" id="fitcard">
+    <h2>Harmonization model (prototype)</h2>
+    <p class="note" id="fittxt" style="margin-top:6px"></p>
+    <div class="df"><table id="fittbl"></table></div>
   </div>
 
   <div class="card">
@@ -161,6 +167,20 @@ $('tiles').innerHTML = [
   ['VIIRS detections per MODIS detection', rm ? (rv / rm).toFixed(1) + '×' : '–', `over the shared record, ${S.VIIRS.first.slice(0, 4)} onward`],
 ].map(t => `<div class="tile"><div class="k">${t[0]}</div><div class="v">${t[1]}</div><div class="n">${t[2]}</div></div>`).join('');
 
+// ---- harmonization summary --------------------------------------------------
+{
+  const f = D.harmonized.fit, h = f.holdout, p = x => (x * 100).toFixed(0) + '%', e = x => '×/÷ ' + Math.exp(x).toFixed(2);
+  $('fittxt').innerHTML = `Fitted on the ${f.n} months where both sensors have sampled days: ` +
+    `<code>log(1 + VIIRS/day) = ${f.a.toFixed(2)} + ${f.b.toFixed(2)} · log(1 + MODIS/day)</code>, R² = ${f.r2.toFixed(2)}. ` +
+    `The dashed line applies this to every MODIS month, giving a VIIRS-equivalent history back to 2000; the shaded band is a 90% prediction interval. ` +
+    `Because the exponent is below 1, VIIRS/MODIS shrinks as fire activity grows (large fires saturate both sensors; small ones only VIIRS sees). ` +
+    `This is monthly and regional, from a 5-day sample, so treat it as a first-pass calibration.`;
+  $('fittbl').innerHTML = `<thead><tr><th></th><th>Typical error</th><th>Bias</th></tr></thead><tbody>` +
+    `<tr><th>Model, held out (fit ${h.train}, test ${h.test}, n=${h.n_test})</th><td>${e(h.mae_log)}</td><td>${(h.bias_log >= 0 ? '+' : '') + h.bias_log.toFixed(2)} log</td></tr>` +
+    `<tr><th>Constant ratio baseline, same split</th><td>${e(h.mae_log_ratio)}</td><td>–</td></tr>` +
+    `<tr><th>Share of held-out months inside the 90% band</th><td>${p(h.coverage90)}</td><td>(nominal 90% — band is a bit narrow)</td></tr></tbody>`;
+}
+
 // ---- time series ----------------------------------------------------------
 const T0 = 2000 + 10 / 12, T1 = +S.MODIS.last.slice(0, 4) + (+S.MODIS.last.slice(5, 7)) / 12;
 function series(s, mode) {           // -> [{t, w, label, v}] ; v = mean detections/day, null if nothing downloaded
@@ -168,6 +188,12 @@ function series(s, mode) {           // -> [{t, w, label, v}] ; v = mean detecti
     const y = +r[0].slice(0, 4), m = +r[0].slice(5, 7);
     return { t: y + (m - 0.5) / 12, y, label: new Date(y, m - 1).toLocaleString('en', { month: 'short', year: 'numeric' }), v: r[2] ? r[1] / r[2] : null };
   });
+  if (s === 'H') {
+    const H = D.harmonized;
+    if (mode === 'month') return H.monthly.map(r => { const y = +r[0].slice(0, 4), m = +r[0].slice(5, 7);
+      return { t: y + (m - 0.5) / 12, y, label: r[0], v: r[1], lo: r[2], hi: r[3] }; });
+    return Object.entries(H.yearly).map(([y, r]) => ({ t: +y + 0.5, y: +y, label: y, v: r[0], lo: r[1], hi: r[2] }));
+  }
   return Object.entries(s.years).map(([y, r]) => ({ t: +y + 0.5, y: +y, label: y, v: r.days ? r.count / r.days : null }));
 }
 let mode = 'month', selYear, ser, sc;
@@ -177,8 +203,8 @@ const el = (n, a, txt) => { const e = document.createElementNS(NS, n); for (cons
 function drawChart() {
   const W = svg.clientWidth, H = svg.clientHeight, m = { l: 46, r: 14, t: 14, b: 26 };
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.innerHTML = '';
-  ser = { MODIS: series(S.MODIS, mode), VIIRS: series(S.VIIRS, mode) };
-  const max = Math.max(1, ...ser.MODIS.concat(ser.VIIRS).map(p => p.v || 0));
+  ser = { MODIS: series(S.MODIS, mode), VIIRS: series(S.VIIRS, mode), H: series('H', mode) };
+  const max = Math.max(1, ...ser.MODIS.concat(ser.VIIRS, ser.H).map(p => p.v || 0));
   const step = [1, 2, 5].map(k => k * 10 ** Math.floor(Math.log10(max / 4))).concat(10 ** Math.ceil(Math.log10(max / 4))).find(s => max / s <= 5);
   const top = Math.ceil(max / step) * step;
   const x = t => m.l + (t - T0) / (T1 - T0) * (W - m.l - m.r), y = v => H - m.b - v / top * (H - m.t - m.b);
@@ -195,6 +221,14 @@ function drawChart() {
   const vs = +S.VIIRS.first.slice(0, 4) + (+S.VIIRS.first.slice(5, 7) - 1) / 12;
   svg.append(el('line', { x1: x(vs), x2: x(vs), y1: m.t, y2: H - m.b, stroke: css('--text-3'), 'stroke-dasharray': '3 3', 'stroke-width': 1 }));
   svg.append(el('text', { x: x(vs) - 6, y: m.t + 10, 'text-anchor': 'end' }, 'VIIRS record begins'));
+  { // harmonized: 90% band + dashed line
+    const hp = ser.H.filter(p => p.v != null), cl = v => Math.min(v, top);
+    if (hp.length) {
+      const up = hp.map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.hi)).toFixed(1)), dn = hp.slice().reverse().map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.lo)).toFixed(1));
+      svg.append(el('path', { d: 'M' + up.join('L') + 'L' + dn.join('L') + 'Z', fill: css('--viirs'), opacity: .13 }));
+      svg.append(el('path', { d: 'M' + hp.map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.v)).toFixed(1)).join('L'), fill: 'none', stroke: css('--viirs'), 'stroke-width': 1.5, 'stroke-dasharray': '5 3' }));
+    }
+  }
   for (const k of ['MODIS', 'VIIRS']) {
     let d = '', pen = false;
     ser[k].forEach(p => { if (p.v == null) { pen = false; return; } d += (pen ? 'L' : 'M') + x(p.t).toFixed(1) + ' ' + y(p.v).toFixed(1); pen = true; });
@@ -211,9 +245,11 @@ svg.addEventListener('mousemove', e => {
   g.append(el('line', { x1: x(a.t), x2: x(a.t), y1: m.t, y2: H - m.b, stroke: css('--text-3'), 'stroke-width': 1 }));
   [[a, '--modis'], [b, '--viirs']].forEach(([p, c]) => p && p.v != null &&
     g.append(el('circle', { cx: x(p.t), cy: y(p.v), r: 4, fill: css(c), stroke: css('--surface'), 'stroke-width': 2 })));
+  const h = ser.H.find(p => p.label === a.label);
   const val = p => !p ? '<span class="muted">not launched</span>' : p.v == null ? '<span class="muted">no sample</span>' : fmt(p.v) + ' / day';
   const tip = $('tip');
   tip.innerHTML = `<b>${a.label}</b><i class="sw" style="background:var(--modis)"></i>MODIS&nbsp; ${val(a)}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS&nbsp;&nbsp; ${val(b)}` +
+    (h && h.v != null ? `<br><i class="sw" style="background:var(--viirs);opacity:.6"></i>Model&nbsp;&nbsp; ${fmt(h.v)} / day <span class="muted">(${fmt(h.lo)}–${fmt(h.hi)})</span>` : '') +
     (a.v && b && b.v ? `<br><span class="muted">VIIRS saw ${(b.v / a.v).toFixed(1)}× as many</span>` : '');
   tip.style.display = 'block';
   const px = x(a.t), tw = tip.offsetWidth;

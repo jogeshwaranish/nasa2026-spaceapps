@@ -1,0 +1,180 @@
+{
+ "monthly": {
+  "n_months": 177,
+  "validation": "leave-one-year-out, 2012-2026",
+  "scores": {
+   "log-log line (previous prototype)": {
+    "mae_log": 0.2303385762756568,
+    "r2_log": 0.9209327632425424,
+    "typical_factor": 1.2590262141806339
+   },
+   "ridge: MODIS + neighbours + season": {
+    "mae_log": 0.20741378215709133,
+    "r2_log": 0.9300003623922946,
+    "typical_factor": 1.2304916219331608
+   },
+   "gradient boosting": {
+    "mae_log": 0.23210318267913255,
+    "r2_log": 0.9187199410893182,
+    "typical_factor": 1.2612498612542475
+   },
+   "constant ratio": {
+    "mae_log": 0.28348152412965233,
+    "r2_log": 0.8696059098518059,
+    "typical_factor": 1.3277443488547989
+   }
+  },
+  "chosen": "ridge: MODIS + neighbours + season",
+  "interval90_log": [
+   -0.4162531138485342,
+   0.4795691285615941
+  ],
+  "interval_coverage_oos": 0.8983050847457628
+ },
+ "spatial": {
+  "per_year": {
+   "2012": {
+    "active_cells": 1070,
+    "mae_log": 0.07445047546047033,
+    "mae_log_ratio_baseline": 0.09124469141031112,
+    "total_pred": 233.50037533174174,
+    "total_actual": 266.4909090909091
+   },
+   "2013": {
+    "active_cells": 1115,
+    "mae_log": 0.050087107590316864,
+    "mae_log_ratio_baseline": 0.07545036788566525,
+    "total_pred": 118.13476217851131,
+    "total_actual": 130.23333333333335
+   },
+   "2014": {
+    "active_cells": 997,
+    "mae_log": 0.05721685286295035,
+    "mae_log_ratio_baseline": 0.07946107669363212,
+    "total_pred": 135.5643469131767,
+    "total_actual": 131.76666666666668
+   },
+   "2015": {
+    "active_cells": 1063,
+    "mae_log": 0.05928243428263342,
+    "mae_log_ratio_baseline": 0.07639156250245352,
+    "total_pred": 119.7554252101954,
+    "total_actual": 148.33333333333331
+   },
+   "2016": {
+    "active_cells": 1100,
+    "mae_log": 0.04992724493722203,
+    "mae_log_ratio_baseline": 0.07554164525292505,
+    "total_pred": 98.96198627088643,
+    "total_actual": 99.28333333333333
+   },
+   "2017": {
+    "active_cells": 1424,
+    "mae_log": 0.0636652702439615,
+    "mae_log_ratio_baseline": 0.08550268023253343,
+    "total_pred": 236.9915966998861,
+    "total_actual": 233.94999999999996
+   },
+   "2018": {
+    "active_cells": 1289,
+    "mae_log": 0.05697441734152112,
+    "mae_log_ratio_baseline": 0.07913760606951403,
+    "total_pred": 227.78221119189135,
+    "total_actual": 227.21666666666667
+   },
+   "2019": {
+    "active_cells": 1012,
+    "mae_log": 0.05026767531741153,
+    "mae_log_ratio_baseline": 0.07279053853822688,
+    "total_pred": 84.14133306283676,
+    "total_actual": 92.65
+   },
+   "2020": {
+    "active_cells": 1723,
+    "mae_log": 0.0811704352546361,
+    "mae_log_ratio_baseline": 0.09427905706744732,
+    "total_pred": 547.3558215329491,
+    "total_actual": 701.0166666666667
+   },
+   "2021": {
+    "active_cells": 1521,
+    "mae_log": 0.07199353355244507,
+    "mae_log_ratio_baseline": 0.08442484109196863,
+    "total_pred": 580.9889764609916,
+    "total_actual": 547.4333333333333
+   },
+   "2022": {
+    "active_cells": 1245,
+    "mae_log": 0.04964745842834499,
+    "mae_log_ratio_baseline": 0.06955547938517975,
+    "total_pred": 108.65355270920827,
+    "total_actual": 131.46666666666667
+   },
+   "2023": {
+    "active_cells": 1308,
+    "mae_log": 0.04771203295940141,
+    "mae_log_ratio_baseline": 0.0700950280749654,
+    "total_pred": 123.93412933746869,
+    "total_actual": 127.93333333333334
+   },
+   "2024": {
+    "active_cells": 1130,
+    "mae_log": 0.05381929676757748,
+    "mae_log_ratio_baseline": 0.07452067115999704,
+    "total_pred": 105.56035600311814,
+    "total_actual": 100.21666666666668
+   },
+   "2025": {
+    "active_cells": 1030,
+    "mae_log": 0.053446101201094935,
+    "mae_log_ratio_baseline": 0.06824403232041239,
+    "total_pred": 88.83331792483662,
+    "total_actual": 98.18333333333334
+   },
+   "2026": {
+    "active_cells": 910,
+    "mae_log": 0.06024407586762329,
+    "mae_log_ratio_baseline": 0.07955371990839726,
+    "total_pred": 84.92461521782177,
+    "total_actual": 82.82
+   }
+  },
+  "scored_on": "cells where MODIS or VIIRS detected fire that year, leave-one-year-out",
+  "mae_log": 0.05963797944141802,
+  "r2_log": 0.8035499233084336,
+  "mae_log_ratio_baseline": 0.07909557863973941,
+  "r2_log_ratio_baseline": 0.7396429660713884,
+  "corr_cell_rate": 0.907664880852129
+ },
+ "viirs_years": [
+  2012,
+  2013,
+  2014,
+  2015,
+  2016,
+  2017,
+  2018,
+  2019,
+  2020,
+  2021,
+  2022,
+  2023,
+  2024,
+  2025,
+  2026
+ ],
+ "backcast_years": [
+  2000,
+  2001,
+  2002,
+  2003,
+  2004,
+  2005,
+  2006,
+  2007,
+  2008,
+  2009,
+  2010,
+  2011
+ ]
+}

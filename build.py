@@ -10,6 +10,7 @@ from datetime import date, timedelta, datetime
 from pathlib import Path
 
 import fetch
+import harmonize
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
@@ -105,6 +106,7 @@ def main():
         w = csv.writer(f)
         w.writerow(["sensor", "month", "detections", "days_downloaded", "days_in_record"])
         w.writerows(table)
+    harmonize.add_harmonized(out)
     html = (ROOT / "template.html").read_text().replace("/*DATA*/null", json.dumps(out, separators=(",", ":")))
     (ROOT / "fires.html").write_text(html)
     print(f"wrote fires.html ({len(html) / 1e6:.1f} MB) and monthly.csv")
