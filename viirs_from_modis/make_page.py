@@ -17,6 +17,7 @@ def rates(sensor):  # year -> flat [ix, iy, detections/day]
 
 data = {"name": D["name"], "bbox": D["bbox"], "cell": D["cell"],
         "metrics": json.loads((OUT / "metrics.json").read_text()),
+        "to_modis": D.get("to_modis"),   # VIIRS-in-MODIS-units series from ../consolidate.py (via build.py)
         "monthly": list(csv.DictReader(open(OUT / "monthly_predictions.csv"))),
         "modis": rates("MODIS"), "viirs": rates("VIIRS"), "pred": {str(k): v for k, v in P["years"].items()}}
 html = (HERE / "page_template.html").read_text(encoding="utf8").replace("/*DATA*/null", json.dumps(data, separators=(",", ":")))

@@ -89,16 +89,26 @@ a { color: inherit; }
   <div class="card">
     <div class="row">
       <h2>Fire detections per day</h2>
-      <div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (Terra + Aqua)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (Suomi NPP)</span><span id="hleg"><i class="sw" style="background:repeating-linear-gradient(90deg,var(--viirs) 0 4px,transparent 4px 7px)"></i>MODIS → VIIRS-equivalent (model)</span></div>
+      <div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (Terra + Aqua)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (Suomi NPP)</span><span id="hleg"></span></div>
       <span class="grow"></span>
       <div class="seg" id="mode"><button data-m="month" aria-pressed="true">Monthly</button><button data-m="year" aria-pressed="false">Yearly</button></div>
+    </div>
+    <div class="row"><span class="note" style="margin:0">Model line:</span>
+      <div class="seg" id="hmode"><button data-h="to_modis" aria-pressed="true">VIIRS in MODIS units</button><button data-h="harmonized" aria-pressed="false">MODIS in VIIRS units</button><button data-h="" aria-pressed="false">Off</button></div>
     </div>
     <div class="chartwrap"><svg id="chart"></svg><div id="tip"></div></div>
     <p class="note">Average detections per day over the sampled days in each period. Click the chart to show that year on the maps.</p>
   </div>
 
+  <div class="card" id="tmcard">
+    <h2>VIIRS in MODIS units (merge pixels, then calibrate)</h2>
+    <p class="note" id="tmtxt" style="margin-top:6px"></p>
+    <div class="df"><table id="tmtbl"></table></div>
+    <p class="note" id="tmsens"></p>
+  </div>
+
   <div class="card" id="fitcard">
-    <h2>Harmonization model (prototype)</h2>
+    <h2>MODIS in VIIRS units (back-cast prototype)</h2>
     <p class="note" id="fittxt" style="margin-top:6px"></p>
     <div class="df"><table id="fittbl"></table></div>
   </div>
@@ -138,7 +148,7 @@ a { color: inherit; }
 
   <p class="note">Source: NASA FIRMS area API — MODIS Collection 6.1 (standard + near-real-time) and VIIRS S-NPP 375 m (standard + near-real-time).
     MODIS counts combine two satellites (Terra, and Aqua from mid-2002); VIIRS counts are from Suomi NPP only. All detection types and confidence levels are included.
-    Data built <span id="gen"></span>. Table view: <a href="monthly.csv">monthly.csv</a>.</p>
+    Data built <span id="gen"></span>. Table view: <a href="monthly.csv">monthly.csv</a>. Back-cast models: <a href="viirs_from_modis/index.html">viirs_from_modis</a>.</p>
 </main>
 
 <script>
@@ -165,7 +175,28 @@ $('tiles').innerHTML = [
   ['MODIS detections' + partial, total(S.MODIS).toLocaleString(), `${S.MODIS.first.slice(0, 4)}–${S.MODIS.last.slice(0, 4)}`],
   ['VIIRS detections' + partial, total(S.VIIRS).toLocaleString(), `${S.VIIRS.first.slice(0, 4)}–${S.VIIRS.last.slice(0, 4)}`],
   ['VIIRS detections per MODIS detection', rm ? (rv / rm).toFixed(1) + '×' : '–', `over the shared record, ${S.VIIRS.first.slice(0, 4)} onward`],
+  [`…after merging VIIRS pixels to ${D.to_modis.km} km`, D.to_modis.fit.ratio_merged.toFixed(1) + '×', 'same fire, same overpass, same cell → one detection'],
 ].map(t => `<div class="tile"><div class="k">${t[0]}</div><div class="v">${t[1]}</div><div class="n">${t[2]}</div></div>`).join('');
+
+// ---- VIIRS in MODIS units ----------------------------------------------------
+{
+  const T = D.to_modis, f = T.fit, e = x => '×/÷ ' + Math.exp(x).toFixed(2), sg = x => Math.abs(x) < 0.005 ? '0.00' : (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(2);
+  $('tmtxt').innerHTML = `MODIS is the reference because it has the long record, so 2000–2011 is shown as measured and only VIIRS is converted. ` +
+    `<b>Step 1, merge:</b> a VIIRS pixel is about 375 m and a MODIS pixel about 1 km, so one fire lights up several VIIRS pixels. ` +
+    `Within each overpass, VIIRS detections in the same ${T.km} km cell are merged into one. That cuts VIIRS from ${f.ratio_raw.toFixed(1)}× to ${f.ratio_merged.toFixed(1)}× MODIS. ` +
+    `<b>Step 2, calibrate</b> what merging can't remove (small fires only VIIRS sees; MODIS flies on two satellites, VIIRS here on one): ` +
+    `<code>log(1 + MODIS/day) = ${f.a.toFixed(2)} + ${f.b.toFixed(2)} · log(1 + merged VIIRS/day)</code>, fitted on ${f.n} overlap months (${f.years}), R² = ${f.r2.toFixed(2)}. ` +
+    `The dashed blue line is the result; where it tracks the solid MODIS line, VIIRS could carry the MODIS record forward. ` +
+    `The band is a 90% interval built from errors on years the fit never saw, and it holds ${Math.round(f.coverage90 * 100)}% of months.`;
+  const order = ['raw VIIRS as-is', 'merged VIIRS as-is', 'raw VIIRS ÷ constant ratio', 'merged VIIRS ÷ constant ratio', 'raw VIIRS, log-log fit', 'merged VIIRS, log-log fit'];
+  $('tmtbl').innerHTML = `<thead><tr><th>Predicting MODIS/day from…</th><th>Typical error</th><th>Bias</th></tr></thead><tbody>` +
+    order.map(k => `<tr><th>${k}${k === 'merged VIIRS, log-log fit' ? ' (shown)' : ''}</th><td>${e(f.scores[k].mae_log)}</td><td>${sg(f.scores[k].bias_log)} log</td></tr>`).join('') + '</tbody>';
+  const best = order.reduce((a, k) => f.scores[k].mae_log < f.scores[a].mae_log ? k : a);
+  $('tmsens').innerHTML = `Scored leave-one-year-out on monthly totals. ` +
+    (best === 'merged VIIRS, log-log fit' ? 'Merging plus calibration is the most accurate option. ' :
+      `For monthly totals, <i>${best}</i> is about as accurate (${e(f.scores[best].mae_log)}): calibration absorbs most of what merging does. Merging is shown because it makes the units physical — one count ≈ one 1 km pixel on fire. `) +
+    `Merge cell size changes the merged ratio: ` + Object.entries(f.sensitivity).map(([k, v]) => `${(+k).toFixed(2)} km → ${v.toFixed(1)}×`).join(', ') + '.';
+}
 
 // ---- harmonization summary --------------------------------------------------
 {
@@ -184,26 +215,28 @@ $('tiles').innerHTML = [
 // ---- time series ----------------------------------------------------------
 const T0 = 2000 + 10 / 12, T1 = +S.MODIS.last.slice(0, 4) + (+S.MODIS.last.slice(5, 7)) / 12;
 function series(s, mode) {           // -> [{t, w, label, v}] ; v = mean detections/day, null if nothing downloaded
-  if (mode === 'month') return s.monthly.map(r => {
-    const y = +r[0].slice(0, 4), m = +r[0].slice(5, 7);
-    return { t: y + (m - 0.5) / 12, y, label: new Date(y, m - 1).toLocaleString('en', { month: 'short', year: 'numeric' }), v: r[2] ? r[1] / r[2] : null };
-  });
   if (s === 'H') {
-    const H = D.harmonized;
+    const H = D[hmode];
     if (mode === 'month') return H.monthly.map(r => { const y = +r[0].slice(0, 4), m = +r[0].slice(5, 7);
       return { t: y + (m - 0.5) / 12, y, label: r[0], v: r[1], lo: r[2], hi: r[3] }; });
     return Object.entries(H.yearly).map(([y, r]) => ({ t: +y + 0.5, y: +y, label: y, v: r[0], lo: r[1], hi: r[2] }));
   }
+  if (mode === 'month') return s.monthly.map(r => {
+    const y = +r[0].slice(0, 4), m = +r[0].slice(5, 7);
+    return { t: y + (m - 0.5) / 12, y, label: new Date(y, m - 1).toLocaleString('en', { month: 'short', year: 'numeric' }), v: r[2] ? r[1] / r[2] : null };
+  });
   return Object.entries(s.years).map(([y, r]) => ({ t: +y + 0.5, y: +y, label: y, v: r.days ? r.count / r.days : null }));
 }
-let mode = 'month', selYear, ser, sc;
+let mode = 'month', hmode = 'to_modis', selYear, ser, sc;
+const HM = { to_modis: ['--modis', 'VIIRS in MODIS units (model)'], harmonized: ['--viirs', 'MODIS in VIIRS units (model)'] };
 const svg = $('chart'), NS = 'http://www.w3.org/2000/svg';
 const el = (n, a, txt) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
 
 function drawChart() {
   const W = svg.clientWidth, H = svg.clientHeight, m = { l: 46, r: 14, t: 14, b: 26 };
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.innerHTML = '';
-  ser = { MODIS: series(S.MODIS, mode), VIIRS: series(S.VIIRS, mode), H: series('H', mode) };
+  ser = { MODIS: series(S.MODIS, mode), VIIRS: series(S.VIIRS, mode), H: hmode ? series('H', mode) : [] };
+  $('hleg').innerHTML = hmode ? `<i class="sw" style="background:repeating-linear-gradient(90deg,var(${HM[hmode][0]}) 0 4px,transparent 4px 7px)"></i>${HM[hmode][1]}` : '';
   const max = Math.max(1, ...ser.MODIS.concat(ser.VIIRS, ser.H).map(p => p.v || 0));
   const step = [1, 2, 5].map(k => k * 10 ** Math.floor(Math.log10(max / 4))).concat(10 ** Math.ceil(Math.log10(max / 4))).find(s => max / s <= 5);
   const top = Math.ceil(max / step) * step;
@@ -221,12 +254,13 @@ function drawChart() {
   const vs = +S.VIIRS.first.slice(0, 4) + (+S.VIIRS.first.slice(5, 7) - 1) / 12;
   svg.append(el('line', { x1: x(vs), x2: x(vs), y1: m.t, y2: H - m.b, stroke: css('--text-3'), 'stroke-dasharray': '3 3', 'stroke-width': 1 }));
   svg.append(el('text', { x: x(vs) - 6, y: m.t + 10, 'text-anchor': 'end' }, 'VIIRS record begins'));
-  { // harmonized: 90% band + dashed line
+  let dl = null;
+  { // model: 90% band now, dashed line after the sensor lines so it stays visible
     const hp = ser.H.filter(p => p.v != null), cl = v => Math.min(v, top);
     if (hp.length) {
       const up = hp.map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.hi)).toFixed(1)), dn = hp.slice().reverse().map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.lo)).toFixed(1));
-      svg.append(el('path', { d: 'M' + up.join('L') + 'L' + dn.join('L') + 'Z', fill: css('--viirs'), opacity: .13 }));
-      svg.append(el('path', { d: 'M' + hp.map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.v)).toFixed(1)).join('L'), fill: 'none', stroke: css('--viirs'), 'stroke-width': 1.5, 'stroke-dasharray': '5 3' }));
+      svg.append(el('path', { d: 'M' + up.join('L') + 'L' + dn.join('L') + 'Z', fill: css(HM[hmode][0]), opacity: .13 }));
+      dl = el('path', { d: 'M' + hp.map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.v)).toFixed(1)).join('L'), fill: 'none', stroke: css(HM[hmode][0]), 'stroke-width': 1.5, 'stroke-dasharray': '5 3' });
     }
   }
   for (const k of ['MODIS', 'VIIRS']) {
@@ -234,6 +268,7 @@ function drawChart() {
     ser[k].forEach(p => { if (p.v == null) { pen = false; return; } d += (pen ? 'L' : 'M') + x(p.t).toFixed(1) + ' ' + y(p.v).toFixed(1); pen = true; });
     svg.append(el('path', { d, fill: 'none', stroke: css(k === 'MODIS' ? '--modis' : '--viirs'), 'stroke-width': mode === 'year' ? 2 : 1.5, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
   }
+  if (dl) svg.append(dl);
   svg.append(el('g', { id: 'hov' }));
 }
 function nearest(arr, t) { let b = null; for (const p of arr) if (!b || Math.abs(p.t - t) < Math.abs(b.t - t)) b = p; return b; }
@@ -245,11 +280,11 @@ svg.addEventListener('mousemove', e => {
   g.append(el('line', { x1: x(a.t), x2: x(a.t), y1: m.t, y2: H - m.b, stroke: css('--text-3'), 'stroke-width': 1 }));
   [[a, '--modis'], [b, '--viirs']].forEach(([p, c]) => p && p.v != null &&
     g.append(el('circle', { cx: x(p.t), cy: y(p.v), r: 4, fill: css(c), stroke: css('--surface'), 'stroke-width': 2 })));
-  const h = ser.H.find(p => p.label === a.label);
+  const h = ser.H.find(p => Math.abs(p.t - a.t) < 1e-6);
   const val = p => !p ? '<span class="muted">not launched</span>' : p.v == null ? '<span class="muted">no sample</span>' : fmt(p.v) + ' / day';
   const tip = $('tip');
   tip.innerHTML = `<b>${a.label}</b><i class="sw" style="background:var(--modis)"></i>MODIS&nbsp; ${val(a)}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS&nbsp;&nbsp; ${val(b)}` +
-    (h && h.v != null ? `<br><i class="sw" style="background:var(--viirs);opacity:.6"></i>Model&nbsp;&nbsp; ${fmt(h.v)} / day <span class="muted">(${fmt(h.lo)}–${fmt(h.hi)})</span>` : '') +
+    (h && h.v != null ? `<br><i class="sw" style="background:var(${HM[hmode][0]});opacity:.6"></i>Model&nbsp;&nbsp; ${fmt(h.v)} / day <span class="muted">(${fmt(h.lo)}–${fmt(h.hi)}) · ${hmode === 'to_modis' ? 'VIIRS in MODIS units' : 'MODIS in VIIRS units'}</span>` : '') +
     (a.v && b && b.v ? `<br><span class="muted">VIIRS saw ${(b.v / a.v).toFixed(1)}× as many</span>` : '');
   tip.style.display = 'block';
   const px = x(a.t), tw = tip.offsetWidth;
@@ -264,6 +299,12 @@ $('mode').addEventListener('click', e => {
   if (!e.target.dataset.m) return;
   mode = e.target.dataset.m;
   [...$('mode').children].forEach(b => b.setAttribute('aria-pressed', b === e.target));
+  drawChart();
+});
+$('hmode').addEventListener('click', e => {
+  if (!e.target.dataset || e.target.dataset.h == null) return;
+  hmode = e.target.dataset.h;
+  [...$('hmode').children].forEach(b => b.setAttribute('aria-pressed', b === e.target));
   drawChart();
 });
 addEventListener('resize', drawChart);
