@@ -181,20 +181,25 @@ $('tiles').innerHTML = [
 // ---- VIIRS in MODIS units ----------------------------------------------------
 {
   const T = D.to_modis, f = T.fit, e = x => '×/÷ ' + Math.exp(x).toFixed(2), sg = x => Math.abs(x) < 0.005 ? '0.00' : (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(2);
+  const pm = x => (x < 0 ? ' − ' : ' + ') + Math.abs(x).toPrecision(2);
+  const eq = `log(1 + MODIS/day) = ${f.intercept.toFixed(2)}` + f.terms.map(([t, c]) => `${pm(c)} · ${t}`).join('');
   $('tmtxt').innerHTML = `MODIS is the reference because it has the long record, so 2000–2011 is shown as measured and only VIIRS is converted. ` +
     `<b>Step 1, merge:</b> a VIIRS pixel is about 375 m and a MODIS pixel about 1 km, so one fire lights up several VIIRS pixels. ` +
     `Within each overpass, VIIRS detections in the same ${T.km} km cell are merged into one. That cuts VIIRS from ${f.ratio_raw.toFixed(1)}× to ${f.ratio_merged.toFixed(1)}× MODIS. ` +
-    `<b>Step 2, calibrate</b> what merging can't remove (small fires only VIIRS sees; MODIS flies on two satellites, VIIRS here on one): ` +
-    `<code>log(1 + MODIS/day) = ${f.a.toFixed(2)} + ${f.b.toFixed(2)} · log(1 + merged VIIRS/day)</code>, fitted on ${f.n} overlap months (${f.years}), R² = ${f.r2.toFixed(2)}. ` +
+    `<b>Step 2, calibrate</b> what merging can't remove (small fires only VIIRS sees; MODIS flies on two satellites, VIIRS here on one). ` +
+    `<i>Fire clustering</i> is VIIRS pixels per merged cell: high for big clumped wildfires, near 1 for scattered small burns, which VIIRS over-counts relative to MODIS. ` +
+    `Model used (<i>${f.chosen}</i>), fitted on ${f.n} overlap months (${f.years}), R² = ${f.r2.toFixed(2)}:<br><code>${eq}</code><br>` +
     `The dashed blue line is the result; where it tracks the solid MODIS line, VIIRS could carry the MODIS record forward. ` +
     `The band is a 90% interval built from errors on years the fit never saw, and it holds ${Math.round(f.coverage90 * 100)}% of months.`;
-  const order = ['raw VIIRS as-is', 'merged VIIRS as-is', 'raw VIIRS ÷ constant ratio', 'merged VIIRS ÷ constant ratio', 'raw VIIRS, log-log fit', 'merged VIIRS, log-log fit'];
-  $('tmtbl').innerHTML = `<thead><tr><th>Predicting MODIS/day from…</th><th>Typical error</th><th>Bias</th></tr></thead><tbody>` +
-    order.map(k => `<tr><th>${k}${k === 'merged VIIRS, log-log fit' ? ' (shown)' : ''}</th><td>${e(f.scores[k].mae_log)}</td><td>${sg(f.scores[k].bias_log)} log</td></tr>`).join('') + '</tbody>';
-  const best = order.reduce((a, k) => f.scores[k].mae_log < f.scores[a].mae_log ? k : a);
-  $('tmsens').innerHTML = `Scored leave-one-year-out on monthly totals. ` +
-    (best === 'merged VIIRS, log-log fit' ? 'Merging plus calibration is the most accurate option. ' :
-      `For monthly totals, <i>${best}</i> is about as accurate (${e(f.scores[best].mae_log)}): calibration absorbs most of what merging does. Merging is shown because it makes the units physical — one count ≈ one 1 km pixel on fire. `) +
+  $('tmtbl').innerHTML = `<thead><tr><th>Predicting MODIS/day from…</th><th>Typical error</th><th>Quiet months (&lt;10/day)</th><th>Bias</th></tr></thead><tbody>` +
+    f.order.map(k => { const v = f.scores[k]; return `<tr><th>${k}${k === f.chosen ? ' (shown)' : ''}</th><td>${e(v.mae_log)}</td><td>${e(v.mae_log_quiet)}</td><td>${sg(v.bias_log)} log</td></tr>`; }).join('') + '</tbody>';
+  const S = f.scores, base = S['merged + fire clustering'], wx = f.order.filter(k => /weather|cloud/.test(k));
+  const bestWx = wx.reduce((a, k) => !a || S[k].mae_log < S[a].mae_log ? k : a, null);
+  $('tmsens').innerHTML = `Scored leave-one-year-out on monthly totals. A model with more terms is used only if it cuts the held-out error by at least ${(f.min_gain * 100).toFixed(1)}%. ` +
+    `Fire clustering is the term that helps, mostly in quiet months (${e(S['merged VIIRS, log-log fit'].mae_log_quiet)} → ${e(base.mae_log_quiet)}); season adds a little on top. ` +
+    (bestWx ? `Weather on the sampled days (NASA POWER cloud, rain, humidity, max temperature and wind at 8 fire-prone points) ` +
+      (S[bestWx].mae_log < base.mae_log - f.min_gain ? `helps: ${e(S[bestWx].mae_log)} vs ${e(base.mae_log)} without it. ` :
+        `does not help: ×/÷ ${Math.exp(S[bestWx].mae_log).toFixed(3)} at best vs ×/÷ ${Math.exp(base.mae_log).toFixed(3)} without it — fire type explains the quiet-month gap better than the weather does. `) : '') +
     `Merge cell size changes the merged ratio: ` + Object.entries(f.sensitivity).map(([k, v]) => `${(+k).toFixed(2)} km → ${v.toFixed(1)}×`).join(', ') + '.';
 }
 

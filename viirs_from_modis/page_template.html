@@ -24,7 +24,7 @@ table{border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
 <h1>Back-casting VIIRS from MODIS — <span id="region"></span></h1>
 <p class="sub">Two ways to put both sensors on one scale, both trained on 2012 onward when both were flying.
 <b>MODIS → VIIRS units</b>: predict what VIIRS (375 m) would have detected from MODIS (1 km), then apply it to 2000–2011, before VIIRS existed.
-<b>VIIRS → MODIS units</b>: merge VIIRS pixels to 1 km within each overpass and calibrate to MODIS, so 2000–2011 stays as measured and VIIRS can carry the MODIS record forward.
+<b>VIIRS → MODIS units</b>: merge VIIRS pixels to 1 km within each overpass and calibrate to MODIS (using how clustered the fires are and the season), so 2000–2011 stays as measured and VIIRS can carry the MODIS record forward.
 <a href="../fires.html">← Main comparison page</a></p>
 
 <div class="card"><div class="row"><h2>Fire detections per sampled day</h2>
@@ -61,7 +61,7 @@ const TM=Object.fromEntries(((D.to_modis||{}).monthly||[]).map(r=>[r[0],r]));M.f
 let dir='b';const DIRS={b:{k:'p',lo:'lo',hi:'hi',c:'--viirs',name:'VIIRS predicted from MODIS',tip:'VIIRS predicted',
   note:'Shaded band: 90% interval taken from the model\'s errors on years it was not trained on. The grey region (before 2012) is where VIIRS did not exist, so the dashed line there is a reconstruction and cannot be checked against observations.'},
  f:{k:'f',lo:'flo',hi:'fhi',c:'--modis',name:'VIIRS in MODIS units (merged to 1 km, calibrated)',tip:'VIIRS in MODIS units',
-  note:'Dashed blue: VIIRS with pixels in the same 1 km cell and overpass merged into one, then calibrated to MODIS. Where it tracks the solid MODIS line, VIIRS could carry the MODIS record forward. Shaded band: 90% interval from errors on held-out years. Before 2012 nothing is modelled — MODIS is shown as measured.'}};
+  note:'Dashed blue: VIIRS with pixels in the same 1 km cell and overpass merged into one, then calibrated to MODIS using fire clustering and season. Where it tracks the solid MODIS line, VIIRS could carry the MODIS record forward. Shaded band: 90% interval from errors on held-out years. Before 2012 nothing is modelled — MODIS is shown as measured.'}};
 const T0=M[0].t-1/24,T1=M[M.length-1].t+1/24,V0=D.metrics.viirs_years[0];let log=true,sc;const svg=$('chart');
 function draw(){const W=svg.clientWidth,H=svg.clientHeight,m={l:46,r:14,t:12,b:26};svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.innerHTML='';
  const Dd=DIRS[dir];$('mleg').innerHTML=`<i class="sw" style="background:repeating-linear-gradient(90deg,var(${Dd.c}) 0 4px,transparent 4px 7px)"></i>${Dd.name}`;$('chnote').textContent=Dd.note;
@@ -90,10 +90,9 @@ const S=D.metrics.monthly,sp=D.metrics.spatial,ex=x=>Math.exp(x).toFixed(2)+'×'
 $('scores').innerHTML='<thead><tr><th>Monthly model</th><th>Typical error</th><th>R² (log)</th></tr></thead><tbody>'+Object.entries(S.scores).map(([k,v])=>`<tr class="${k===S.chosen?'best':''}"><th>${k}${k===S.chosen?' ← used':''}</th><td>${ex(v.mae_log)}</td><td>${v.r2_log.toFixed(2)}</td></tr>`).join('')+
  `</tbody><thead><tr><th>Spatial model (cell × year)</th><th>Typical error (log pts)</th><th>R² (log)</th></tr></thead><tbody><tr class="best"><th>gradient boosting on MODIS neighbourhood ← used</th><td>${sp.mae_log.toFixed(3)}</td><td>${sp.r2_log.toFixed(2)}</td></tr><tr><th>constant ratio per cell</th><td>${sp.mae_log_ratio_baseline.toFixed(3)}</td><td>${sp.r2_log_ratio_baseline.toFixed(2)}</td></tr></tbody>`;
 $('spnote').textContent=`Monthly 90% interval covered ${(S.interval_coverage_oos*100).toFixed(0)}% of held-out months (it is calibrated on those same errors, so this is optimistic). Spatial scores use only cells where either sensor saw fire; cell-level correlation between predicted and observed VIIRS rate is ${sp.corr_cell_rate.toFixed(2)}.`;
-if(D.to_modis){const F=D.to_modis.fit,sg=v=>Math.abs(v)<.005?'0.00':(v>0?'+':'−')+Math.abs(v).toFixed(2),
-  order=['raw VIIRS ÷ constant ratio','merged VIIRS ÷ constant ratio','raw VIIRS, log-log fit','merged VIIRS, log-log fit'];
- $('fscores').innerHTML='<thead><tr><th>Reverse: predicting MODIS from VIIRS</th><th>Typical error</th><th>Bias (log)</th></tr></thead><tbody>'+order.map(k=>`<tr class="${k==='merged VIIRS, log-log fit'?'best':''}"><th>${k}${k==='merged VIIRS, log-log fit'?' ← used':''}</th><td>${ex(F.scores[k].mae_log)}</td><td>${sg(F.scores[k].bias_log)}</td></tr>`).join('')+'</tbody>';
- $('fnote').textContent=`Merging VIIRS pixels to ${D.to_modis.km} km within each overpass cuts VIIRS from ${F.ratio_raw.toFixed(1)}× to ${F.ratio_merged.toFixed(1)}× MODIS; the fit log(1+MODIS) = ${F.a.toFixed(2)} + ${F.b.toFixed(2)}·log(1+merged VIIRS) handles the rest. Same leave-one-year-out scoring; its 90% band covered ${(F.coverage90*100).toFixed(0)}% of held-out months. For monthly totals, merging is about as accurate as fitting raw VIIRS — it is used because it gives the units a physical meaning (one count ≈ one 1 km pixel on fire).`}
+if(D.to_modis){const F=D.to_modis.fit,sg=v=>Math.abs(v)<.005?'0.00':(v>0?'+':'−')+Math.abs(v).toFixed(2);
+ $('fscores').innerHTML='<thead><tr><th>Reverse: predicting MODIS from VIIRS</th><th>Typical error</th><th>Quiet months</th><th>Bias (log)</th></tr></thead><tbody>'+F.order.map(k=>`<tr class="${k===F.chosen?'best':''}"><th>${k}${k===F.chosen?' ← used':''}</th><td>${ex(F.scores[k].mae_log)}</td><td>${ex(F.scores[k].mae_log_quiet)}</td><td>${sg(F.scores[k].bias_log)}</td></tr>`).join('')+'</tbody>';
+ $('fnote').textContent=`Merging VIIRS pixels to ${D.to_modis.km} km within each overpass cuts VIIRS from ${F.ratio_raw.toFixed(1)}× to ${F.ratio_merged.toFixed(1)}× MODIS; a calibration fit handles the rest. Fire clustering (VIIRS pixels per merged cell) is the extra term that helps, mostly in quiet months (under 10 MODIS detections/day); season adds a little; weather on the sampled days from NASA POWER does not. Same leave-one-year-out scoring; the 90% band covered ${(F.coverage90*100).toFixed(0)}% of held-out months.`}
 // ---- maps
 const [w,s,ea,n]=D.bbox,maps={},layers={};
 for(const [k,id] of [['m','mm'],['v','mv']]){const mp=maps[k]=L.map(id,{renderer:L.canvas(),zoomSnap:.25});
