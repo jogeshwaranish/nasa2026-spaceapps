@@ -22,17 +22,21 @@ table{border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
 .seg{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden}.seg button{border:0;background:transparent;color:var(--text-2);padding:5px 11px;font:inherit;cursor:pointer}.seg button[aria-pressed=true]{background:var(--band);color:var(--text);font-weight:600}
 </style></head><body><main>
 <h1>Back-casting VIIRS from MODIS — <span id="region"></span></h1>
-<p class="sub">A model is trained on 2012 onward, when both sensors were flying, to predict what VIIRS (375 m) would have detected from what MODIS (1 km) detected. It is then applied to 2000–2011, before VIIRS existed.</p>
+<p class="sub">Two ways to put both sensors on one scale, both trained on 2012 onward when both were flying.
+<b>MODIS → VIIRS units</b>: predict what VIIRS (375 m) would have detected from MODIS (1 km), then apply it to 2000–2011, before VIIRS existed.
+<b>VIIRS → MODIS units</b>: merge VIIRS pixels to 1 km within each overpass and calibrate to MODIS, so 2000–2011 stays as measured and VIIRS can carry the MODIS record forward.
+<a href="../fires.html">← Main comparison page</a></p>
 
 <div class="card"><div class="row"><h2>Fire detections per sampled day</h2>
-<div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (observed)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (observed)</span><span><i class="sw" style="background:repeating-linear-gradient(90deg,var(--viirs) 0 4px,transparent 4px 7px)"></i>VIIRS (predicted from MODIS)</span></div>
-<span class="grow"></span><div class="seg" id="scale"><button data-s="log" aria-pressed="true">Log</button><button data-s="lin" aria-pressed="false">Linear</button></div></div>
+<div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (observed)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (observed)</span><span id="mleg"></span></div>
+<span class="grow"></span><div class="seg" id="dir"><button data-d="b" aria-pressed="true">MODIS → VIIRS units</button><button data-d="f" aria-pressed="false">VIIRS → MODIS units</button></div><div class="seg" id="scale"><button data-s="log" aria-pressed="true">Log</button><button data-s="lin" aria-pressed="false">Linear</button></div></div>
 <div class="cw"><svg id="chart"></svg><div id="tip"></div></div>
-<p class="note">Shaded band: 90% interval taken from the model's errors on years it was not trained on. The grey region (before 2012) is where VIIRS did not exist, so the dashed line there is a reconstruction and cannot be checked against observations.</p></div>
+<p class="note" id="chnote"></p></div>
 
 <div class="card"><h2>How well does it work on years it hasn't seen?</h2>
 <p class="note" style="margin:6px 0 10px">Leave-one-year-out: each year 2012–2026 is held out, the model is trained on the others, and scored on the held-out year. “Typical error” is the typical multiplicative miss (1.20× = within about 20%).</p>
-<table id="scores"></table><p class="note" id="spnote"></p></div>
+<table id="scores"></table><p class="note" id="spnote"></p>
+<table id="fscores" style="margin-top:14px"></table><p class="note" id="fnote"></p></div>
 
 <div class="card"><div class="row"><h2>Where VIIRS would have seen fire</h2><input type="range" id="yr" step="1"><span id="yl"></span></div>
 <div class="maps"><div><div class="mh"><i class="sw" style="background:var(--modis)"></i><b>MODIS</b> observed · <span id="cm"></span></div><div class="map" id="mm"></div></div>
@@ -41,6 +45,7 @@ table{border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
 
 <div class="card"><h2>Limits</h2><ul class="note" style="padding-left:18px;margin:6px 0 0">
 <li>The predictions contain no new observations: they re-express MODIS on VIIRS's scale. They cannot recover small fires MODIS missed entirely.</li>
+<li>The reverse direction (VIIRS → MODIS units) needs no reconstruction before 2012, but in MODIS units the small fires only VIIRS sees are, by design, no longer visible.</li>
 <li>The training years can't tell us whether the MODIS–VIIRS relationship was the same in 2000–2011.</li>
 <li>2000 to mid-2002 is Terra only; the model learned from Terra + Aqua, so those years are the least reliable.</li>
 <li>Data is 5 sampled days per month (13th–17th), so each month is noisy. Fetching the full record would tighten everything.</li></ul></div>
@@ -52,32 +57,43 @@ const fmt=n=>n>=100?Math.round(n).toLocaleString():n>=10?n.toFixed(1):n.toFixed(
 $('region').textContent=D.name;
 // ---- chart
 const M=D.monthly.map(r=>{const y=+r.month.slice(0,4),m=+r.month.slice(5,7),n=v=>v===''?null:+v;return{label:r.month,t:y+(m-.5)/12,mo:n(r.modis_per_day),vi:n(r.viirs_actual_per_day),p:n(r.viirs_predicted_per_day),lo:n(r.pred_lo90),hi:n(r.pred_hi90)}});
+const TM=Object.fromEntries(((D.to_modis||{}).monthly||[]).map(r=>[r[0],r]));M.forEach(p=>{const r=TM[p.label];p.f=r?r[1]:null;p.flo=r?r[2]:null;p.fhi=r?r[3]:null});
+let dir='b';const DIRS={b:{k:'p',lo:'lo',hi:'hi',c:'--viirs',name:'VIIRS predicted from MODIS',tip:'VIIRS predicted',
+  note:'Shaded band: 90% interval taken from the model\'s errors on years it was not trained on. The grey region (before 2012) is where VIIRS did not exist, so the dashed line there is a reconstruction and cannot be checked against observations.'},
+ f:{k:'f',lo:'flo',hi:'fhi',c:'--modis',name:'VIIRS in MODIS units (merged to 1 km, calibrated)',tip:'VIIRS in MODIS units',
+  note:'Dashed blue: VIIRS with pixels in the same 1 km cell and overpass merged into one, then calibrated to MODIS. Where it tracks the solid MODIS line, VIIRS could carry the MODIS record forward. Shaded band: 90% interval from errors on held-out years. Before 2012 nothing is modelled — MODIS is shown as measured.'}};
 const T0=M[0].t-1/24,T1=M[M.length-1].t+1/24,V0=D.metrics.viirs_years[0];let log=true,sc;const svg=$('chart');
 function draw(){const W=svg.clientWidth,H=svg.clientHeight,m={l:46,r:14,t:12,b:26};svg.setAttribute('viewBox',`0 0 ${W} ${H}`);svg.innerHTML='';
- const vals=M.flatMap(p=>[p.mo,p.vi,p.hi]).filter(v=>v!=null),mx=Math.max(...vals);
+ const Dd=DIRS[dir];$('mleg').innerHTML=`<i class="sw" style="background:repeating-linear-gradient(90deg,var(${Dd.c}) 0 4px,transparent 4px 7px)"></i>${Dd.name}`;$('chnote').textContent=Dd.note;
+ const vals=M.flatMap(p=>[p.mo,p.vi,p[Dd.hi]]).filter(v=>v!=null),mx=Math.max(...vals);
  const f=v=>log?Math.log10(1+v):v,top=f(mx)*1.04;const x=t=>m.l+(t-T0)/(T1-T0)*(W-m.l-m.r),y=v=>H-m.b-f(v)/top*(H-m.t-m.b);sc={x,y,W,m};
  svg.append(el('rect',{x:x(T0),y:m.t,width:x(V0)-x(T0),height:H-m.t-m.b,fill:css('--band')}));
- svg.append(el('text',{x:x(T0)+6,y:m.t+12},'before VIIRS existed'));
+ svg.append(el('text',{x:x(T0)+6,y:m.t+12},dir==='b'?'before VIIRS existed':'before VIIRS existed — MODIS as measured'));
  const ticks=log?[0,1,10,100,1000,10000].filter(v=>f(v)<=top):[0,.25,.5,.75,1].map(k=>k*mx);
  ticks.forEach(v=>{svg.append(el('line',{x1:m.l,x2:W-m.r,y1:y(v),y2:y(v),stroke:css('--grid')}));svg.append(el('text',{x:m.l-8,y:y(v)+4,'text-anchor':'end'},fmt(v)))});
  for(let yr=2002;yr<=T1;yr+=W<620?5:2)svg.append(el('text',{x:x(yr),y:H-8,'text-anchor':'middle'},yr));
- const pp=M.filter(p=>p.p!=null);
- svg.append(el('path',{d:'M'+pp.map(p=>x(p.t).toFixed(1)+' '+y(p.hi).toFixed(1)).join('L')+'L'+pp.slice().reverse().map(p=>x(p.t).toFixed(1)+' '+y(p.lo).toFixed(1)).join('L')+'Z',fill:css('--viirs'),opacity:.14}));
+ const pp=M.filter(p=>p[Dd.k]!=null);
+ svg.append(el('path',{d:'M'+pp.map(p=>x(p.t).toFixed(1)+' '+y(p[Dd.hi]).toFixed(1)).join('L')+'L'+pp.slice().reverse().map(p=>x(p.t).toFixed(1)+' '+y(p[Dd.lo]).toFixed(1)).join('L')+'Z',fill:css(Dd.c),opacity:.14}));
  const line=(k,c,dash,w)=>{let d='',pen=false;M.forEach(p=>{if(p[k]==null){pen=false;return}d+=(pen?'L':'M')+x(p.t).toFixed(1)+' '+y(p[k]).toFixed(1);pen=true});svg.append(el('path',{d,fill:'none',stroke:css(c),'stroke-width':w,'stroke-dasharray':dash||'none','stroke-linejoin':'round'}))};
- line('mo','--modis',0,1.4);line('p','--viirs','5 3',1.5);line('vi','--viirs',0,1.6);svg.append(el('g',{id:'hov'}))}
+ line('mo','--modis',0,1.4);line('vi','--viirs',0,1.6);line(Dd.k,Dd.c,'5 3',1.5);svg.append(el('g',{id:'hov'}))}
 svg.addEventListener('mousemove',ev=>{const r=svg.getBoundingClientRect(),{x,y,W,m}=sc,t=T0+(ev.clientX-r.left-m.l)/(W-m.l-m.r)*(T1-T0);
  const p=M.reduce((b,q)=>Math.abs(q.t-t)<Math.abs(b.t-t)?q:b);const g=$('hov');g.innerHTML='';g.append(el('line',{x1:x(p.t),x2:x(p.t),y1:m.t,y2:svg.clientHeight-m.b,stroke:css('--text-3')}));
  const c=v=>v==null?'<span style="color:var(--text-3)">–</span>':fmt(v);const tip=$('tip');
- tip.innerHTML=`<b>${p.label}</b><br><i class="sw" style="background:var(--modis)"></i>MODIS ${c(p.mo)}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS observed ${c(p.vi)}<br><i class="sw" style="background:var(--viirs);opacity:.5"></i>VIIRS predicted ${c(p.p)}${p.lo!=null?` <span style="color:var(--text-3)">(${fmt(p.lo)}–${fmt(p.hi)})</span>`:''}`;
+ tip.innerHTML=`<b>${p.label}</b><br><i class="sw" style="background:var(--modis)"></i>MODIS ${c(p.mo)}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS observed ${c(p.vi)}<br><i class="sw" style="background:var(${DIRS[dir].c});opacity:.5"></i>${DIRS[dir].tip} ${c(p[DIRS[dir].k])}${p[DIRS[dir].lo]!=null?` <span style="color:var(--text-3)">(${fmt(p[DIRS[dir].lo])}–${fmt(p[DIRS[dir].hi])})</span>`:''}`;
  tip.style.display='block';const px=x(p.t);tip.style.left=(px+14+tip.offsetWidth>W?px-tip.offsetWidth-14:px+14)+'px';tip.style.top='8px'});
 svg.addEventListener('mouseleave',()=>{$('tip').style.display='none';$('hov').innerHTML=''});
 $('scale').addEventListener('click',ev=>{if(!ev.target.dataset.s)return;log=ev.target.dataset.s==='log';[...$('scale').children].forEach(b=>b.setAttribute('aria-pressed',b===ev.target));draw()});
+$('dir').addEventListener('click',ev=>{if(!ev.target.dataset.d)return;dir=ev.target.dataset.d;[...$('dir').children].forEach(b=>b.setAttribute('aria-pressed',b===ev.target));draw()});
 addEventListener('resize',draw);
 // ---- scores
 const S=D.metrics.monthly,sp=D.metrics.spatial,ex=x=>Math.exp(x).toFixed(2)+'×';
 $('scores').innerHTML='<thead><tr><th>Monthly model</th><th>Typical error</th><th>R² (log)</th></tr></thead><tbody>'+Object.entries(S.scores).map(([k,v])=>`<tr class="${k===S.chosen?'best':''}"><th>${k}${k===S.chosen?' ← used':''}</th><td>${ex(v.mae_log)}</td><td>${v.r2_log.toFixed(2)}</td></tr>`).join('')+
  `</tbody><thead><tr><th>Spatial model (cell × year)</th><th>Typical error (log pts)</th><th>R² (log)</th></tr></thead><tbody><tr class="best"><th>gradient boosting on MODIS neighbourhood ← used</th><td>${sp.mae_log.toFixed(3)}</td><td>${sp.r2_log.toFixed(2)}</td></tr><tr><th>constant ratio per cell</th><td>${sp.mae_log_ratio_baseline.toFixed(3)}</td><td>${sp.r2_log_ratio_baseline.toFixed(2)}</td></tr></tbody>`;
 $('spnote').textContent=`Monthly 90% interval covered ${(S.interval_coverage_oos*100).toFixed(0)}% of held-out months (it is calibrated on those same errors, so this is optimistic). Spatial scores use only cells where either sensor saw fire; cell-level correlation between predicted and observed VIIRS rate is ${sp.corr_cell_rate.toFixed(2)}.`;
+if(D.to_modis){const F=D.to_modis.fit,sg=v=>Math.abs(v)<.005?'0.00':(v>0?'+':'−')+Math.abs(v).toFixed(2),
+  order=['raw VIIRS ÷ constant ratio','merged VIIRS ÷ constant ratio','raw VIIRS, log-log fit','merged VIIRS, log-log fit'];
+ $('fscores').innerHTML='<thead><tr><th>Reverse: predicting MODIS from VIIRS</th><th>Typical error</th><th>Bias (log)</th></tr></thead><tbody>'+order.map(k=>`<tr class="${k==='merged VIIRS, log-log fit'?'best':''}"><th>${k}${k==='merged VIIRS, log-log fit'?' ← used':''}</th><td>${ex(F.scores[k].mae_log)}</td><td>${sg(F.scores[k].bias_log)}</td></tr>`).join('')+'</tbody>';
+ $('fnote').textContent=`Merging VIIRS pixels to ${D.to_modis.km} km within each overpass cuts VIIRS from ${F.ratio_raw.toFixed(1)}× to ${F.ratio_merged.toFixed(1)}× MODIS; the fit log(1+MODIS) = ${F.a.toFixed(2)} + ${F.b.toFixed(2)}·log(1+merged VIIRS) handles the rest. Same leave-one-year-out scoring; its 90% band covered ${(F.coverage90*100).toFixed(0)}% of held-out months. For monthly totals, merging is about as accurate as fitting raw VIIRS — it is used because it gives the units a physical meaning (one count ≈ one 1 km pixel on fire).`}
 // ---- maps
 const [w,s,ea,n]=D.bbox,maps={},layers={};
 for(const [k,id] of [['m','mm'],['v','mv']]){const mp=maps[k]=L.map(id,{renderer:L.canvas(),zoomSnap:.25});
