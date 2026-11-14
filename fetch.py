@@ -2,15 +2,15 @@
 """Download a sample of MODIS + VIIRS active-fire detections from NASA FIRMS.
 
 The area API allows 5 days per request and 5000 transactions / 10 min (a 5-day
-request costs 10), so instead of the full record this takes one 5-day snippet
-per month (the 13th-17th) across each sensor's whole lifetime: ~490 requests,
-about 10 minutes. Snippets are cached in data/raw/<SOURCE>/<start>.csv.gz and
+request costs 10), so instead of the full record this takes three 5-day snippets
+per month (days 1-5, 11-15 and 21-25, about half of every month) across each
+sensor's whole lifetime: ~1,500 requests, about 35 minutes. Snippets are cached in data/raw/<SOURCE>/<start>.csv.gz and
 skipped on re-run.
 
     python3 fetch.py                       # California, MODIS + VIIRS S-NPP
     python3 fetch.py --bbox -10,35,5,44    # west,south,east,north
 """
-import argparse, csv, gzip, io, json, os, sys, threading, time, urllib.request
+import argparse, csv, gzip, io, itertools, json, os, sys, threading, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
@@ -19,7 +19,18 @@ API = "https://firms.modaps.eosdis.nasa.gov/api"
 ROOT = Path(__file__).parent
 RAW = ROOT / "data" / "raw"
 WINDOW = 5                      # API maximum day range
-SAMPLE_DAY = 13                 # each month is sampled on days 13-17
+SAMPLE_DAYS = (1, 11, 21)       # each month is sampled on days 1-5, 11-15 and 21-25 (~50%)
+SAMPLING = "15 days per month (the 1st-5th, 11th-15th and 21st-25th, about half of every month)"
+
+
+def in_sample(d):
+    return any(s <= d.day < s + WINDOW for s in SAMPLE_DAYS)
+
+
+def snippet_days(start, last):
+    """Days a snippet starting on `start` covers (its window, clipped to the feed's last day)."""
+    days = itertools.takewhile(lambda d: d <= last and in_sample(d), (start + timedelta(days=i) for i in range(WINDOW)))
+    return list(days)
 SENSORS = {                     # sensor -> its standard (SP) and near-real-time (NRT) feeds
     "MODIS": ["MODIS_SP", "MODIS_NRT"],
     "VIIRS": ["VIIRS_SNPP_SP", "VIIRS_SNPP_NRT"],
@@ -49,17 +60,18 @@ def availability(key):
 
 
 def windows(avail):
-    """One 5-day snippet per month (the 13th-17th) for every feed: (source, start, ndays)."""
+    """Three 5-day snippets per month (SAMPLE_DAYS) for every feed: (source, start, ndays)."""
     out = []
     for feeds in SENSORS.values():
         for src in feeds:
             lo, hi = avail[src]
             y, m = lo.year, lo.month
             while (y, m) <= (hi.year, hi.month):
-                start = max(lo, date(y, m, SAMPLE_DAY))
-                end = min(hi, date(y, m, SAMPLE_DAY + WINDOW - 1))
-                if start <= end:
-                    out.append((src, start, (end - start).days + 1))
+                for sd in SAMPLE_DAYS:
+                    start = max(lo, date(y, m, sd))
+                    end = min(hi, date(y, m, sd + WINDOW - 1))
+                    if start <= end:
+                        out.append((src, start, (end - start).days + 1))
                 y, m = (y + 1, 1) if m == 12 else (y, m + 1)
     return out
 

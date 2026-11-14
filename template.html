@@ -94,7 +94,7 @@ a { color: inherit; }
       <div class="seg" id="mode"><button data-m="month" aria-pressed="true">Monthly</button><button data-m="year" aria-pressed="false">Yearly</button></div>
     </div>
     <div class="row"><span class="note" style="margin:0">Model line:</span>
-      <div class="seg" id="hmode"><button data-h="to_modis" aria-pressed="true">VIIRS in MODIS units</button><button data-h="harmonized" aria-pressed="false">MODIS in VIIRS units</button><button data-h="" aria-pressed="false">Off</button></div>
+      <div class="seg" id="hmode"><button data-h="to_modis" aria-pressed="true">VIIRS in MODIS units</button><button data-h="" aria-pressed="false">Off</button></div>
     </div>
     <div class="chartwrap"><svg id="chart"></svg><div id="tip"></div></div>
     <p class="note">Average detections per day over the sampled days in each period. Click the chart to show that year on the maps.</p>
@@ -105,12 +105,6 @@ a { color: inherit; }
     <p class="note" id="tmtxt" style="margin-top:6px"></p>
     <div class="df"><table id="tmtbl"></table></div>
     <p class="note" id="tmsens"></p>
-  </div>
-
-  <div class="card" id="fitcard">
-    <h2>MODIS in VIIRS units (back-cast prototype)</h2>
-    <p class="note" id="fittxt" style="margin-top:6px"></p>
-    <div class="df"><table id="fittbl"></table></div>
   </div>
 
   <div class="card">
@@ -148,7 +142,7 @@ a { color: inherit; }
 
   <p class="note">Source: NASA FIRMS area API — MODIS Collection 6.1 (standard + near-real-time) and VIIRS S-NPP 375 m (standard + near-real-time).
     MODIS counts combine two satellites (Terra, and Aqua from mid-2002); VIIRS counts are from Suomi NPP only. All detection types and confidence levels are included.
-    Data built <span id="gen"></span>. Table view: <a href="monthly.csv">monthly.csv</a>. Back-cast models: <a href="viirs_from_modis/index.html">viirs_from_modis</a>. Explore and download by region and date: <a href="app/">Fire Activity Explorer</a>.</p>
+    Data built <span id="gen"></span>. Table view: <a href="monthly.csv">monthly.csv</a>. Explore and download by region and date: <a href="app/">Fire Activity Explorer</a>.</p>
 </main>
 
 <script>
@@ -163,7 +157,7 @@ $('region').textContent = D.name; $('gen').textContent = D.generated; $('cellnot
 const cov = s => { let g = 0, p = 0; s.monthly.forEach(r => { g += r[2]; p += r[3]; }); return g / p; };
 const covM = cov(S.MODIS), covV = cov(S.VIIRS);
 $('partial').style.display = 'block';
-$('partial').textContent = `This is a sample, not the full record: 5 days from every month (the 13th–17th), about ${Math.round(covM * 100)}% of all days. ` +
+$('partial').textContent = `This is a sample, not the full record: 15 days from every month (the 1st–5th, 11th–15th and 21st–25th), about ${Math.round(covM * 100)}% of all days. ` +
   `Rates are averaged over those sampled days; counts on the maps and tiles are for the sampled days only.`;
 const total = s => s.monthly.reduce((a, r) => a + r[1], 0);
 // like-for-like ratio: only months where both sensors have downloaded days
@@ -203,20 +197,6 @@ $('tiles').innerHTML = [
     `Merge cell size changes the merged ratio: ` + Object.entries(f.sensitivity).map(([k, v]) => `${(+k).toFixed(2)} km → ${v.toFixed(1)}×`).join(', ') + '.';
 }
 
-// ---- harmonization summary --------------------------------------------------
-{
-  const f = D.harmonized.fit, h = f.holdout, p = x => (x * 100).toFixed(0) + '%', e = x => '×/÷ ' + Math.exp(x).toFixed(2);
-  $('fittxt').innerHTML = `Fitted on the ${f.n} months where both sensors have sampled days: ` +
-    `<code>log(1 + VIIRS/day) = ${f.a.toFixed(2)} + ${f.b.toFixed(2)} · log(1 + MODIS/day)</code>, R² = ${f.r2.toFixed(2)}. ` +
-    `The dashed line applies this to every MODIS month, giving a VIIRS-equivalent history back to 2000; the shaded band is a 90% prediction interval. ` +
-    `Because the exponent is below 1, VIIRS/MODIS shrinks as fire activity grows (large fires saturate both sensors; small ones only VIIRS sees). ` +
-    `This is monthly and regional, from a 5-day sample, so treat it as a first-pass calibration.`;
-  $('fittbl').innerHTML = `<thead><tr><th></th><th>Typical error</th><th>Bias</th></tr></thead><tbody>` +
-    `<tr><th>Model, held out (fit ${h.train}, test ${h.test}, n=${h.n_test})</th><td>${e(h.mae_log)}</td><td>${(h.bias_log >= 0 ? '+' : '') + h.bias_log.toFixed(2)} log</td></tr>` +
-    `<tr><th>Constant ratio baseline, same split</th><td>${e(h.mae_log_ratio)}</td><td>–</td></tr>` +
-    `<tr><th>Share of held-out months inside the 90% band</th><td>${p(h.coverage90)}</td><td>(nominal 90% — band is a bit narrow)</td></tr></tbody>`;
-}
-
 // ---- time series ----------------------------------------------------------
 const T0 = 2000 + 10 / 12, T1 = +S.MODIS.last.slice(0, 4) + (+S.MODIS.last.slice(5, 7)) / 12;
 function series(s, mode) {           // -> [{t, w, label, v}] ; v = mean detections/day, null if nothing downloaded
@@ -233,7 +213,7 @@ function series(s, mode) {           // -> [{t, w, label, v}] ; v = mean detecti
   return Object.entries(s.years).map(([y, r]) => ({ t: +y + 0.5, y: +y, label: y, v: r.days ? r.count / r.days : null }));
 }
 let mode = 'month', hmode = 'to_modis', selYear, ser, sc;
-const HM = { to_modis: ['--modis', 'VIIRS in MODIS units (model)'], harmonized: ['--viirs', 'MODIS in VIIRS units (model)'] };
+const HM = { to_modis: ['--modis', 'VIIRS in MODIS units (model)'] };
 const svg = $('chart'), NS = 'http://www.w3.org/2000/svg';
 const el = (n, a, txt) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
 
@@ -289,7 +269,7 @@ svg.addEventListener('mousemove', e => {
   const val = p => !p ? '<span class="muted">not launched</span>' : p.v == null ? '<span class="muted">no sample</span>' : fmt(p.v) + ' / day';
   const tip = $('tip');
   tip.innerHTML = `<b>${a.label}</b><i class="sw" style="background:var(--modis)"></i>MODIS&nbsp; ${val(a)}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS&nbsp;&nbsp; ${val(b)}` +
-    (h && h.v != null ? `<br><i class="sw" style="background:var(${HM[hmode][0]});opacity:.6"></i>Model&nbsp;&nbsp; ${fmt(h.v)} / day <span class="muted">(${fmt(h.lo)}–${fmt(h.hi)}) · ${hmode === 'to_modis' ? 'VIIRS in MODIS units' : 'MODIS in VIIRS units'}</span>` : '') +
+    (h && h.v != null ? `<br><i class="sw" style="background:var(${HM[hmode][0]});opacity:.6"></i>Model&nbsp;&nbsp; ${fmt(h.v)} / day <span class="muted">(${fmt(h.lo)}–${fmt(h.hi)}) · VIIRS in MODIS units</span>` : '') +
     (a.v && b && b.v ? `<br><span class="muted">VIIRS saw ${(b.v / a.v).toFixed(1)}× as many</span>` : '');
   tip.style.display = 'block';
   const px = x(a.t), tw = tip.offsetWidth;

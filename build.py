@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Aggregate the cached FIRMS downloads into fires.html (self-contained page).
 
-The data is a sample (5 days per month), so everything is reported as a rate:
+The data is a sample (about half of every month: days 1-5, 11-15, 21-25), so everything is reported as a rate:
 detections per day, averaged over the days actually downloaded.
 """
 import csv, gzip, json, calendar, math, statistics
@@ -11,7 +11,6 @@ from pathlib import Path
 
 import consolidate
 import fetch
-import harmonize
 import weather
 
 ROOT = Path(__file__).parent
@@ -64,13 +63,11 @@ def main():
         for feed in feeds:
             for path in sorted((fetch.RAW / feed).glob("*.csv.gz")):
                 start = date.fromisoformat(path.name[:10])
-                for i in range(fetch.WINDOW):                       # days this snippet covers
-                    d = start + timedelta(days=i)
-                    if d <= avail[feed][1] and d.day < fetch.SAMPLE_DAY + fetch.WINDOW:
-                        m_days[(d.year, d.month)] += 1
+                for d in fetch.snippet_days(start, avail[feed][1]):  # days this snippet covers
+                    m_days[(d.year, d.month)] += 1
                 with gzip.open(path, "rt") as f:
                     rows = list(csv.DictReader(f))
-                if rows:
+                if rows and path.name[:7] not in samples:       # one example snippet per month
                     cols = list(rows[0].keys())
                     samples[path.name[:7]] = {"feed": feed, "start": str(start), "n": len(rows), "cols": cols,
                                               "head": [[r[c] for c in cols] for r in rows[:HEAD]],
@@ -114,7 +111,6 @@ def main():
         w = csv.writer(f)
         w.writerow(["sensor", "month", "detections", "days_downloaded", "days_in_record", f"detections_merged_{consolidate.KM:g}km"])
         w.writerows(table)
-    harmonize.add_harmonized(out)
     consolidate.add_to_modis(out, {km: dict(v) for km, v in merged.items()}, weather.monthly())
     f = out["to_modis"]["fit"]
     print(f"VIIRS per MODIS: raw {f['ratio_raw']:.2f}x, merged {f['ratio_merged']:.2f}x; "

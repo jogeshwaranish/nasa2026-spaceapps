@@ -6,7 +6,7 @@ Everything the project downloads or loads, with where it is used. Links were che
 
 | What | Link | Used by |
 |---|---|---|
-| FIRMS area API (docs) | https://firms.modaps.eosdis.nasa.gov/api/ | `fetch.py` downloads one 5-day snippet (days 13-17) per month |
+| FIRMS area API (docs) | https://firms.modaps.eosdis.nasa.gov/api/ | `fetch.py` downloads three 5-day snippets per month (days 1-5, 11-15, 21-25, about half of every month) |
 | FIRMS map key (free, needed for the API) | https://firms.modaps.eosdis.nasa.gov/api/map_key/ | `.env` -> `FIRMS_MAP_KEY` |
 | FIRMS archive download (full CSVs by country) | https://firms.modaps.eosdis.nasa.gov/download/ | input for `viirs_from_modis/fire_spike_matcher.py` in daily mode (`--firms`) |
 
@@ -58,7 +58,7 @@ Feeds requested in `fetch.py`:
 
 | File | Derived from |
 |---|---|
-| `monthly.csv`, `fires.html` | FIRMS (sampled days 13-17 of each month) |
+| `monthly.csv`, `fires.html` | FIRMS (sampled days 1-5, 11-15 and 21-25 of each month) |
 | `viirs_from_modis/out/*.json`, `*.csv` | FIRMS data, via `train.py` |
 | `viirs_from_modis/out/validation/` | FIRMS-derived predictions compared with FPA FOD incidents |
 | `app/data/fires.json` | FPA FOD fires matched to observed spikes (`fire_spike_matcher.py` output) + Wikipedia links, via `known_fires.py` |

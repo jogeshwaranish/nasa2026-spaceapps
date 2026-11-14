@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Daily weather from NASA POWER for the fire-prone parts of the region, averaged
-over the same sampled days as the FIRMS snippets (13th-17th of each month).
+over the same sampled days as the FIRMS snippets (fetch.SAMPLE_DAYS: days 1-5, 11-15, 21-25).
 
 Used by consolidate.py to test whether weather explains what's left of the
 MODIS/VIIRS gap after merging pixels. No key needed.
@@ -64,7 +64,7 @@ def monthly():
         data = json.loads(f.read_text())
         for p, short in PARAMS.items():
             for d, v in data[p].items():
-                if v is None or v <= -999 or not (fetch.SAMPLE_DAY <= int(d[6:]) < fetch.SAMPLE_DAY + fetch.WINDOW):
+                if v is None or v <= -999 or not any(s <= int(d[6:]) < s + fetch.WINDOW for s in fetch.SAMPLE_DAYS):
                     continue
                 acc.setdefault(f"{d[:4]}-{d[4:6]}", {}).setdefault(short, []).append(v)
     return {m: {k: statistics.fmean(v) for k, v in vals.items()} for m, vals in sorted(acc.items())}
