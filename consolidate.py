@@ -39,7 +39,12 @@ def _minutes(hhmm):
 
 
 def merged_keys(rows, west, south, north, km=KM):
-    """One key per merged detection: (date, satellite, overpass, cell_x, cell_y).
+    """One key per merged detection: (date, satellite, overpass, cell_x, cell_y)."""
+    return set(merged_groups(rows, west, south, north, km))
+
+
+def merged_groups(rows, west, south, north, km=KM):
+    """{merge key: [rows merged into it]}; key = (date, satellite, overpass, cell_x, cell_y).
 
     acq_time is per granule, so one overpass across California can carry several
     times a few minutes apart; those are grouped into one overpass first.
@@ -55,13 +60,13 @@ def merged_keys(rows, west, south, north, km=KM):
             if prev is not None and t - prev > PASS_GAP:
                 n += 1
             pass_of[(k, t)] = n; prev = t
-    keys = set()
+    groups = defaultdict(list)
     for r in rows:
         k = (r["acq_date"], r["satellite"])
         x = (float(r["longitude"]) - west) * kx / km
         y = (float(r["latitude"]) - south) * ky / km
-        keys.add(k + (pass_of[(k, _minutes(r["acq_time"]))], int(x), int(y)))
-    return keys
+        groups[k + (pass_of[(k, _minutes(r["acq_time"]))], int(x), int(y))].append(r)
+    return groups
 
 
 def _solve(A, b):

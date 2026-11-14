@@ -61,5 +61,6 @@ Feeds requested in `fetch.py`:
 | `monthly.csv`, `fires.html` | FIRMS (sampled days 13-17 of each month) |
 | `viirs_from_modis/out/*.json`, `*.csv` | FIRMS data, via `train.py` |
 | `viirs_from_modis/out/validation/` | FIRMS-derived predictions compared with FPA FOD incidents |
+| `app/data/hotspots.csv.gz`, `app/data/meta.json` | FIRMS hotspots, VIIRS merged to 1 km and weighted to MODIS units, via `hotspots.py` (read by the Fire Activity Explorer in `app/`) |
 
 Terms of use: FIRMS data is free to use with NASA acknowledgement; FPA FOD is a US Forest Service dataset with its own citation requirement (see its catalog page).

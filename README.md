@@ -10,6 +10,20 @@ Open `fires.html` in a browser. The page shows:
   - **MODIS in VIIRS units** (`harmonize.py`): the back-cast prototype, which estimates what VIIRS would have seen in 2000–2011.
 - raw FIRMS rows and `df.describe()` tables for months where both sensors have data.
 
+## Fire Activity Explorer (`app/`)
+
+A web app for the harmonized hotspots: pick a region (preset, typed coordinates, or a box drawn on the map) and a date range, choose sensors, units (MODIS-equivalent or raw) and minimum confidence, and get:
+- summary tiles, a hotspot density map, monthly and seasonal charts, a fire-intensity (FRP) distribution and the most active places;
+- downloads: an HTML report (all charts, map and tables), hotspots as CSV or GeoJSON, a monthly summary CSV, analytics JSON, and each chart as SVG or PNG.
+
+The selection is kept in the URL, so a view can be shared as a link.
+
+Data: `app/data/hotspots.csv.gz` + `app/data/meta.json`, written by `python3 hotspots.py` (after `build.py`). One row per hotspot: MODIS detections as-is, and VIIRS pixels merged to 1 km per overpass with a `modis_equiv` weight from the calibration, so summing `modis_equiv` gives MODIS-equivalent counts. Any CSV with the same columns can be loaded with "Load hotspot file…".
+
+Run it: `python3 -m http.server` in the repo, then open http://localhost:8000/app/. (Opened straight from disk, the browser blocks the data fetch; the app then asks you to pick `app/data/hotspots.csv.gz`.)
+
+## Back-cast models
+
 `viirs_from_modis/` holds separate back-cast models (ridge and gradient boosting, plus a per-cell spatial model). They need numpy, scipy and scikit-learn.
 
 ## Rebuild

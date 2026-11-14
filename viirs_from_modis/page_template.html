@@ -38,10 +38,15 @@ table{border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
 <table id="scores"></table><p class="note" id="spnote"></p>
 <table id="fscores" style="margin-top:14px"></table><p class="note" id="fnote"></p></div>
 
+<div class="card" id="valcard"><h2>Do predicted fire spikes land on real fires?</h2>
+<p class="note" id="valtxt" style="margin:6px 0 10px"></p>
+<table id="valtbl"></table>
+<p class="note" id="valnote"></p></div>
+
 <div class="card"><div class="row"><h2>Where VIIRS would have seen fire</h2><input type="range" id="yr" step="1"><span id="yl"></span></div>
 <div class="maps"><div><div class="mh"><i class="sw" style="background:var(--modis)"></i><b>MODIS</b> observed · <span id="cm"></span></div><div class="map" id="mm"></div></div>
 <div><div class="mh"><i class="sw" style="background:var(--viirs)"></i><b>VIIRS</b> <span id="vk"></span> · <span id="cv"></span></div><div class="map" id="mv"></div></div></div>
-<p class="note">Cells are 0.05° (~5 km); colour is detections per sampled day. Right map: observed VIIRS from 2012; model prediction before. The spatial model sees each cell's MODIS rate, its 3×3, 7×7 and 21×21 neighbourhood averages, the region-wide MODIS total and location.</p></div>
+<p class="note">Rings on the right map: recorded wildfires (FPA FOD) matched to a spike in the predicted VIIRS that year; hover for the fire's name and size. Cells are 0.05° (~5 km); colour is detections per sampled day. Right map: observed VIIRS from 2012; model prediction before. The spatial model sees each cell's MODIS rate, its 3×3, 7×7 and 21×21 neighbourhood averages, the region-wide MODIS total and location.</p></div>
 
 <div class="card"><h2>Limits</h2><ul class="note" style="padding-left:18px;margin:6px 0 0">
 <li>The predictions contain no new observations: they re-express MODIS on VIIRS's scale. They cannot recover small fires MODIS missed entirely.</li>
@@ -93,6 +98,24 @@ $('spnote').textContent=`Monthly 90% interval covered ${(S.interval_coverage_oos
 if(D.to_modis){const F=D.to_modis.fit,sg=v=>Math.abs(v)<.005?'0.00':(v>0?'+':'−')+Math.abs(v).toFixed(2);
  $('fscores').innerHTML='<thead><tr><th>Reverse: predicting MODIS from VIIRS</th><th>Typical error</th><th>Quiet months</th><th>Bias (log)</th></tr></thead><tbody>'+F.order.map(k=>`<tr class="${k===F.chosen?'best':''}"><th>${k}${k===F.chosen?' ← used':''}</th><td>${ex(F.scores[k].mae_log)}</td><td>${ex(F.scores[k].mae_log_quiet)}</td><td>${sg(F.scores[k].bias_log)}</td></tr>`).join('')+'</tbody>';
  $('fnote').textContent=`Merging VIIRS pixels to ${D.to_modis.km} km within each overpass cuts VIIRS from ${F.ratio_raw.toFixed(1)}× to ${F.ratio_merged.toFixed(1)}× MODIS; a calibration fit handles the rest. Fire clustering (VIIRS pixels per merged cell) is the extra term that helps, mostly in quiet months (under 10 MODIS detections/day); season adds a little; weather on the sampled days from NASA POWER does not. Same leave-one-year-out scoring; the 90% band covered ${(F.coverage90*100).toFixed(0)}% of held-out months.`}
+// ---- validation against recorded wildfires
+const VA=D.validation;
+if(!VA){$('valcard').style.display='none'}else{
+ const st=VA.settings,R=VA.results,pc=v=>Math.round(v*100)+'%';
+ $('valtxt').innerHTML=`Checked against the US Forest Service wildfire record (FPA FOD, which runs to 2020) with <code>fire_spike_matcher.py</code>. The region is cut into ${st.cell_deg}° cells; a <i>spike</i> is a cell-year whose detections are more than ${st.z} standard deviations above that cell's normal. `+
+  `A spike counts as a hit if a fire of ${st.big_acres}+ acres burned within ${st.buffer_km} km on the sampled days (${st.sampled_days}). “vs chance” compares the hit rate with picking cell-years at random.`;
+ const rows=[['VIIRS_predicted (held out, 2012+)','VIIRS predicted, held-out years',1],['VIIRS_observed (2012+)','VIIRS observed',0],['MODIS_observed (2012+)','MODIS observed',0],
+  ['VIIRS_predicted (back-cast, 2001-2011)','VIIRS predicted, back-cast',1],['MODIS_observed (2001-2011)','MODIS observed',0]];
+ let last='';
+ $('valtbl').innerHTML='<thead><tr><th>Series</th><th>Years</th><th>Spikes on a big fire</th><th>vs chance</th><th>Huge fires caught</th><th>Rank corr. (all cells)</th><th>Rank corr. (yearly totals)</th></tr></thead><tbody>'+
+  rows.filter(r=>R[r[0]]).map(([k,lab,pred])=>{const v=R[k];return `<tr class="${pred?'best':''}"><th>${lab}</th><td>${v.years.replace('-','–')}</td><td>${pc(v.precision)} <span style="color:var(--text-3)">(${v.spikes_on_big_fire}/${v.spike_cell_years})</span></td><td>${v.lift.toFixed(0)}×</td><td>${pc(v.recall_of_huge_fire_cells)}</td><td>${v.spearman_all_cells.toFixed(2)}</td><td>${v.spearman_yearly_totals.toFixed(2)}</td></tr>`}).join('')+'</tbody>';
+ const h=R['VIIRS_predicted (held out, 2012+)'],o=R['VIIRS_observed (2012+)'];
+ $('valnote').innerHTML=`<b>Read the held-out row against VIIRS observed:</b> on years the model never saw, its spikes hit real fires ${pc(h.precision)} of the time vs ${pc(o.precision)} for real VIIRS, and it catches ${pc(h.recall_of_huge_fire_cells)} of huge (${st.huge_acres.toLocaleString()}+ acre) fires vs ${pc(o.recall_of_huge_fire_cells)}. `+
+  `The back-cast rows match MODIS observed closely, which is expected — the back-cast is built from MODIS, so this shows it keeps MODIS's spikes, not that it adds anything. `+
+  `Caveat: among cells with any detections, more detections go with slightly <i>fewer</i> recorded acres in every series, observed ones included (rank corr. about ${h.spearman_active_cells.toFixed(2)} for the held-out predictions), so the detection–acreage link at cell level is weak; agricultural and prescribed burns, which are not in FPA FOD, are a likely reason. `+
+  `Each permutation test gave p ≈ ${h.perm_p.toFixed(3)}. The region extends into Oregon and Nevada, so some matched fires are outside California.`;
+}
+
 // ---- maps
 const [w,s,ea,n]=D.bbox,maps={},layers={};
 for(const [k,id] of [['m','mm'],['v','mv']]){const mp=maps[k]=L.map(id,{renderer:L.canvas(),zoomSnap:.25});
@@ -102,7 +125,10 @@ const years=Object.keys(D.modis).map(Number).sort((a,b)=>a-b);$('yr').min=years[
 function paint(k,flat,col){layers[k].clearLayers();let tot=0;let mx=.001;for(let i=2;i<flat.length;i+=3)mx=Math.max(mx,flat[i]);
  for(let i=0;i<flat.length;i+=3){const v=flat[i+2];tot+=v;const x0=w+flat[i]*D.cell,y0=s+flat[i+1]*D.cell;
   L.rectangle([[y0,x0],[y0+D.cell,x0+D.cell]],{stroke:false,fillColor:col,fillOpacity:.15+.8*Math.sqrt(v/mx)}).addTo(layers[k])}return tot}
+const fireLayer=L.layerGroup().addTo(maps.v);
 function setYear(y){$('yr').value=y;$('yl').textContent=y;
+ fireLayer.clearLayers();if(VA)VA.fires.filter(f=>f[0]===y).forEach(f=>L.circleMarker([f[1],f[2]],{radius:Math.max(5,Math.min(16,Math.sqrt(f[5])/45)),color:css('--text'),weight:1.5,fill:false})
+  .bindTooltip(`<b>${f[3]}</b> fire · started ${f[4]}<br>${f[5].toLocaleString()} acres · ${f[6].toFixed(0)} km from the spike`).addTo(fireLayer));
  $('cm').textContent=fmt(paint('m',D.modis[y]||[],css('--modis')))+' det/day summed over cells';
  const obs=D.viirs[y];$('vk').textContent=obs?'observed':'PREDICTED from MODIS';$('cv').textContent=fmt(paint('v',obs||D.pred[y]||[],css('--viirs')))+' det/day summed over cells'}
 $('yr').addEventListener('input',ev=>setYear(+ev.target.value));
