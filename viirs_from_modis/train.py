@@ -2,7 +2,7 @@
 """Train models that predict VIIRS detections from MODIS, then back-cast VIIRS for 2000-2011.
 
 Inputs : ../fires.html (data embedded by build.py: monthly rates + per-year 0.05-degree cell counts)
-Outputs: out/monthly_predictions.csv, out/cells_predicted.json, out/metrics.json
+Outputs: out/monthly_predictions.csv, out/cells_predicted.json, out/cells_predicted_loyo.json, out/metrics.json
 Run    : python train.py          (needs numpy, scikit-learn)
 
 Two models, both trained only on 2012+ (when VIIRS exists) and applied to MODIS-only years:
@@ -105,6 +105,7 @@ for yy in VIIRS_YEARS:
     u = universe(gm, gv); sets[yy] = (cell_features(gm)[u], np.log1p(gv)[u], u, gm, gv)
 HGB = lambda: HistGradientBoostingRegressor(max_iter=200, learning_rate=0.06, max_leaf_nodes=15, min_samples_leaf=30, random_state=0)
 sp = {"per_year": {}}; allp, ally, allb = [], [], []
+loyo = {}
 for yy in sets:
     Xtr = np.vstack([sets[k][0] for k in sets if k != yy]); ytr = np.concatenate([sets[k][1] for k in sets if k != yy])
     p = HGB().fit(Xtr, ytr).predict(sets[yy][0]); t = sets[yy][1]; Xte = sets[yy][0]
@@ -114,6 +115,8 @@ for yy in sets:
     sp["per_year"][yy] = {"active_cells": int(act.sum()), "mae_log": mae(p[act], t[act]), "mae_log_ratio_baseline": mae(base[act], t[act]),
                           "total_pred": float(np.expm1(p).sum()), "total_actual": float(np.expm1(t).sum())}
     allp.append(p[act]); ally.append(t[act]); allb.append(base[act])
+    iy_, ix_ = np.nonzero(sets[yy][2]); r_ = np.expm1(p); r_[r_ < 0.005] = 0; kk = r_ > 0   # out-of-year prediction for this year
+    loyo[yy] = [round(float(v), 3) if j == 2 else int(v) for a_, b_, c_ in zip(ix_[kk], iy_[kk], r_[kk]) for j, v in enumerate((a_, b_, c_))]
 allp, ally, allb = map(np.concatenate, (allp, ally, allb))
 sp.update({"scored_on": "cells where MODIS or VIIRS detected fire that year, leave-one-year-out",
            "mae_log": mae(allp, ally), "r2_log": r2(ally, allp), "mae_log_ratio_baseline": mae(allb, ally), "r2_log_ratio_baseline": r2(ally, allb),
@@ -128,6 +131,7 @@ for yy in MODIS_ONLY + VIIRS_YEARS:                     # predicted VIIRS cell r
     cells_out[yy] = [round(float(v), 3) if j == 2 else int(v) for a, b, c in zip(ix[keep], iy[keep], p[keep]) for j, v in enumerate((a, b, c))]
 (OUT / "cells_predicted.json").write_text(json.dumps({"cell": CELL, "bbox": D["bbox"], "years": cells_out}, separators=(",", ":")))
 
+(OUT / "cells_predicted_loyo.json").write_text(json.dumps({"cell": CELL, "bbox": D["bbox"], "years": loyo}, separators=(",", ":")))   # honest 2012+ predictions
 metrics = {"monthly": {"n_months": len(y), "validation": "leave-one-year-out, 2012-2026", "scores": mscore, "chosen": best,
                        "interval90_log": [float(q_lo), float(q_hi)], "interval_coverage_oos": cover},
            "spatial": sp, "viirs_years": VIIRS_YEARS, "backcast_years": MODIS_ONLY}
