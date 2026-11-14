@@ -20,6 +20,8 @@ The selection is kept in the URL, so a view can be shared as a link.
 
 Data: `app/data/hotspots.csv.gz` + `app/data/meta.json`, written by `python3 hotspots.py` (after `build.py`). One row per hotspot: MODIS detections as-is, and VIIRS pixels merged to 1 km per overpass with a `modis_equiv` weight from the calibration, so summing `modis_equiv` gives MODIS-equivalent counts. Any CSV with the same columns can be loaded with "Load hotspot file…".
 
+Recorded fires: `app/data/fires.json`, written by `python3 known_fires.py`. It takes the US Forest Service fires (FPA FOD, to 2020) that `viirs_from_modis/fire_spike_matcher.py` matched to spikes in the observed MODIS/VIIRS detections, and links large ones to Wikipedia using the matcher's `wiki_lookup` plus a stricter title check. The app lists them for the selection, marks them on the map, and labels the largest on the activity chart.
+
 Run it: `python3 -m http.server` in the repo, then open http://localhost:8000/app/. (Opened straight from disk, the browser blocks the data fetch; the app then asks you to pick `app/data/hotspots.csv.gz`.)
 
 ## Back-cast models

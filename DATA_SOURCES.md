@@ -36,7 +36,7 @@ Feeds requested in `fetch.py`:
 
 | What | Link | Used by |
 |---|---|---|
-| Wikipedia search API (one request per matched fire) | https://en.wikipedia.org/w/api.php | `fire_spike_matcher.py --wiki` |
+| Wikipedia search API (one request per matched fire) | https://en.wikipedia.org/w/api.php | `fire_spike_matcher.py --wiki`; `known_fires.py` (fires of 5,000+ acres, cached in `data/wiki_cache.json`) |
 
 ## Front-end libraries and map tiles (loaded by the HTML pages)
 
@@ -61,6 +61,7 @@ Feeds requested in `fetch.py`:
 | `monthly.csv`, `fires.html` | FIRMS (sampled days 13-17 of each month) |
 | `viirs_from_modis/out/*.json`, `*.csv` | FIRMS data, via `train.py` |
 | `viirs_from_modis/out/validation/` | FIRMS-derived predictions compared with FPA FOD incidents |
+| `app/data/fires.json` | FPA FOD fires matched to observed spikes (`fire_spike_matcher.py` output) + Wikipedia links, via `known_fires.py` |
 | `app/data/hotspots.csv.gz`, `app/data/meta.json` | FIRMS hotspots, VIIRS merged to 1 km and weighted to MODIS units, via `hotspots.py` (read by the Fire Activity Explorer in `app/`) |
 
 Terms of use: FIRMS data is free to use with NASA acknowledgement; FPA FOD is a US Forest Service dataset with its own citation requirement (see its catalog page).
