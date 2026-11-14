@@ -6,7 +6,7 @@ Open `fires.html` in a browser. The page shows:
 - a monthly/yearly time series of detections per day,
 - two synced detection maps by year,
 - a model line you can switch between:
-  - **VIIRS in MODIS units** (`consolidate.py`): VIIRS detections in the same 1 km cell within one overpass are merged into one MODIS-pixel-sized detection, which cuts VIIRS from 4.4× to 2.3× MODIS. A log-log fit then calibrates what's left. It is scored leave-one-year-out, and its 90% band covers 90% of held-out months.
+  - **VIIRS in MODIS units** (`consolidate.py`): VIIRS detections in the same 1 km cell within one overpass are merged into one MODIS-pixel-sized detection, which cuts VIIRS from 4.4× to 2.3× MODIS. A calibration fit then handles what's left, using how clustered the fires are (VIIRS pixels per merged cell) and the season. Weather on the sampled days from NASA POWER (`weather.py`: cloud, rain, humidity, temperature, wind) was tested and doesn't improve it. It is scored leave-one-year-out, and its 90% band covers 90% of held-out months.
   - **MODIS in VIIRS units** (`harmonize.py`): the back-cast prototype, which estimates what VIIRS would have seen in 2000–2011.
 - raw FIRMS rows and `df.describe()` tables for months where both sensors have data.
 
@@ -17,6 +17,7 @@ Open `fires.html` in a browser. The page shows:
 ```sh
 echo "FIRMS_MAP_KEY=<your key>" > .env
 python3 fetch.py   # downloads one 5-day snippet per month per feed into data/raw (~10 min)
+python3 weather.py # optional: NASA POWER weather for the model comparison into data/weather (~1 min, no key)
 python3 build.py   # writes fires.html and monthly.csv
 ```
 

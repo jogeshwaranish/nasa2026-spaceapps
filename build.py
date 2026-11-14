@@ -4,7 +4,7 @@
 The data is a sample (5 days per month), so everything is reported as a rate:
 detections per day, averaged over the days actually downloaded.
 """
-import csv, gzip, json, calendar, statistics
+import csv, gzip, json, calendar, math, statistics
 from collections import defaultdict
 from datetime import date, timedelta, datetime
 from pathlib import Path
@@ -12,6 +12,7 @@ from pathlib import Path
 import consolidate
 import fetch
 import harmonize
+import weather
 
 ROOT = Path(__file__).parent
 DATA = ROOT / "data"
@@ -114,10 +115,13 @@ def main():
         w.writerow(["sensor", "month", "detections", "days_downloaded", "days_in_record", f"detections_merged_{consolidate.KM:g}km"])
         w.writerows(table)
     harmonize.add_harmonized(out)
-    consolidate.add_to_modis(out, {km: dict(v) for km, v in merged.items()})
+    consolidate.add_to_modis(out, {km: dict(v) for km, v in merged.items()}, weather.monthly())
     f = out["to_modis"]["fit"]
     print(f"VIIRS per MODIS: raw {f['ratio_raw']:.2f}x, merged {f['ratio_merged']:.2f}x; "
-          f"VIIRS->MODIS fit b={f['b']:.2f}, 90% band coverage {f['coverage90']:.0%}")
+          f"VIIRS->MODIS model: {f['chosen']}, 90% band coverage {f['coverage90']:.0%}")
+    for k in f["order"]:
+        s = f["scores"][k]
+        print(f"  {k:38s} held-out error x{math.exp(s['mae_log']):.3f}  quiet months x{math.exp(s['mae_log_quiet']):.3f}")
     html = (ROOT / "template.html").read_text().replace("/*DATA*/null", json.dumps(out, separators=(",", ":")))
     (ROOT / "fires.html").write_text(html)
     print(f"wrote fires.html ({len(html) / 1e6:.1f} MB) and monthly.csv")
