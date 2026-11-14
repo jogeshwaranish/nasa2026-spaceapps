@@ -68,6 +68,7 @@ def viirs_backcast(rows, modis_days):
     M = json.loads(metrics.read_text())["monthly"]
     return {"reference": "VIIRS", "model": M["chosen"], "trained_on": M["validation"],
             "typical_error": round(M["scores"][M["chosen"]]["typical_factor"], 3),
+            "interval90_log": [round(v, 4) for v in M["interval90_log"]],
             "source": "viirs_from_modis/train.py (out/monthly_predictions.csv)",
             "note": "Before VIIRS (to Jan 2012) the VIIRS-units record is predicted from MODIS. Factors are fitted region-wide; a sub-region is assumed to behave the same.",
             "monthly": monthly}   # month -> [VIIRS detections per MODIS hotspot, predicted VIIRS/day, lo90, hi90]
@@ -127,6 +128,7 @@ def main():
         "sampled_days": sampled, "hotspots": counts,
         "harmonization": {"reference": "MODIS", "merge_km": T["km"], "model": T["fit"]["chosen"],
                           "typical_error": round(2.718281828 ** T["fit"]["scores"][T["fit"]["chosen"]]["mae_log"], 3),
+                          "interval90_log": [round(v, 4) for v in T["fit"]["interval90_log"]],
                           "note": "The calibration is fitted on region-wide monthly totals; applying it to a sub-region assumes the same relationship holds there."},
         "columns": SCHEMA,
     }
