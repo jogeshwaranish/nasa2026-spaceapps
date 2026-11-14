@@ -5,7 +5,12 @@ These scripts compare MODIS (since Nov 2000) and VIIRS S-NPP (since Jan 2012) ac
 Open `fires.html` in a browser. The page shows:
 - a monthly/yearly time series of detections per day,
 - two synced detection maps by year,
+- a model line you can switch between:
+  - **VIIRS in MODIS units** (`consolidate.py`): VIIRS detections in the same 1 km cell within one overpass are merged into one MODIS-pixel-sized detection, which cuts VIIRS from 4.4× to 2.3× MODIS. A log-log fit then calibrates what's left. It is scored leave-one-year-out, and its 90% band covers 90% of held-out months.
+  - **MODIS in VIIRS units** (`harmonize.py`): the back-cast prototype, which estimates what VIIRS would have seen in 2000–2011.
 - raw FIRMS rows and `df.describe()` tables for months where both sensors have data.
+
+`viirs_from_modis/` holds separate back-cast models (ridge and gradient boosting, plus a per-cell spatial model). They need numpy, scipy and scikit-learn.
 
 ## Rebuild
 
@@ -15,4 +20,4 @@ python3 fetch.py   # downloads one 5-day snippet per month per feed into data/ra
 python3 build.py   # writes fires.html and monthly.csv
 ```
 
-Python standard library only. The downloaded data is sampled (5 days per month), so the page reports rates as detections per sampled day.
+The main page needs only the Python standard library. The downloaded data is sampled (5 days per month), so the page reports rates as detections per sampled day.

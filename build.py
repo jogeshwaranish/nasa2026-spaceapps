@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import date, timedelta, datetime
 from pathlib import Path
 
+import consolidate
 import fetch
 import harmonize
 
@@ -51,6 +52,7 @@ def main():
     out = {"name": meta["name"], "bbox": [west, south, east, north], "cell": CELL,
            "generated": datetime.now().strftime("%Y-%m-%d %H:%M"), "sensors": {}}
     table = []
+    merged = {km: defaultdict(int) for km in consolidate.SENSITIVITY}   # VIIRS merged to ~MODIS pixels
 
     for sensor, feeds in fetch.SENSORS.items():
         first = min(avail[f][0] for f in feeds)
@@ -79,6 +81,10 @@ def main():
                         ix = int((float(r["longitude"]) - west) / CELL)
                         iy = int((float(r["latitude"]) - south) / CELL)
                         y_cells[y][(ix, iy)] += 1
+                    if sensor == "VIIRS":
+                        for km in merged:
+                            for k in consolidate.merged_keys(rows, west, south, north, km):
+                                merged[km][k[0][:7]] += 1
 
         monthly, years = [], {}
         y, m = first.year, first.month
@@ -87,7 +93,8 @@ def main():
             hi = min(last, date(y, m, calendar.monthrange(y, m)[1]))
             possible = (hi - lo).days + 1
             monthly.append([f"{y}-{m:02d}", m_count[(y, m)], m_days[(y, m)], possible])
-            table.append([sensor, f"{y}-{m:02d}", m_count[(y, m)], m_days[(y, m)], possible])
+            table.append([sensor, f"{y}-{m:02d}", m_count[(y, m)], m_days[(y, m)], possible,
+                          merged[consolidate.KM][f"{y}-{m:02d}"] if sensor == "VIIRS" else ""])
             yr = years.setdefault(y, {"count": 0, "days": 0, "possible": 0})
             yr["count"] += m_count[(y, m)]; yr["days"] += m_days[(y, m)]; yr["possible"] += possible
             y, m = (y + 1, 1) if m == 12 else (y, m + 1)
@@ -104,9 +111,13 @@ def main():
 
     with open(ROOT / "monthly.csv", "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["sensor", "month", "detections", "days_downloaded", "days_in_record"])
+        w.writerow(["sensor", "month", "detections", "days_downloaded", "days_in_record", f"detections_merged_{consolidate.KM:g}km"])
         w.writerows(table)
     harmonize.add_harmonized(out)
+    consolidate.add_to_modis(out, {km: dict(v) for km, v in merged.items()})
+    f = out["to_modis"]["fit"]
+    print(f"VIIRS per MODIS: raw {f['ratio_raw']:.2f}x, merged {f['ratio_merged']:.2f}x; "
+          f"VIIRS->MODIS fit b={f['b']:.2f}, 90% band coverage {f['coverage90']:.0%}")
     html = (ROOT / "template.html").read_text().replace("/*DATA*/null", json.dumps(out, separators=(",", ":")))
     (ROOT / "fires.html").write_text(html)
     print(f"wrote fires.html ({len(html) / 1e6:.1f} MB) and monthly.csv")
