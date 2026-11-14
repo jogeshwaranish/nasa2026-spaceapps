@@ -29,7 +29,7 @@ Feeds requested in `fetch.py`:
 
 | What | Link | Used by |
 |---|---|---|
-| NASA POWER daily point API (community AG) | https://power.larc.nasa.gov/api/temporal/daily/point | `weather.py` |
+| NASA POWER daily point API (community AG) | https://power.larc.nasa.gov/api/temporal/daily/point | `weather.py` (optional; no longer used by the model) |
 | NASA POWER docs | https://power.larc.nasa.gov/docs/ | reference |
 
 ## Optional lookups
@@ -62,6 +62,6 @@ Feeds requested in `fetch.py`:
 | `viirs_from_modis/out/*.json`, `*.csv` | FIRMS data, via `train.py` |
 | `viirs_from_modis/out/validation/` | FIRMS-derived predictions compared with FPA FOD incidents |
 | `app/data/fires.json` | FPA FOD fires matched to observed spikes (`fire_spike_matcher.py` output) + Wikipedia links, via `known_fires.py` |
-| `app/data/hotspots.csv.gz`, `app/data/meta.json` | FIRMS hotspots, VIIRS merged to 1 km and weighted to MODIS units, via `hotspots.py` (read by the Fire Activity Explorer in `app/`) |
+| `app/data/hotspots.csv.gz`, `app/data/meta.json` | FIRMS hotspots, VIIRS consolidated to 1 km and MODIS weighted by the back-cast into VIIRS units, via `hotspots.py` (read by the Fire Activity Explorer in `app/`) |
 
 Terms of use: FIRMS data is free to use with NASA acknowledgement; FPA FOD is a US Forest Service dataset with its own citation requirement (see its catalog page).

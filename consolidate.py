@@ -1,28 +1,23 @@
 #!/usr/bin/env python3
-"""Express VIIRS in MODIS units (stdlib only).
+"""Consolidate VIIRS fires, then back-cast VIIRS to 2000-2011 from MODIS (stdlib only).
 
-MODIS is the reference: it has the long record (Nov 2000 onward), so 2000-2011 stays
-as measured and only VIIRS is converted. Two steps:
+VIIRS is the reference, after one physical step:
 
-1. Physical merge. A VIIRS pixel is ~375 m and a MODIS pixel ~1 km, so one fire lights
-   up several VIIRS pixels where MODIS lights up one. Within each overpass, VIIRS
-   detections that fall in the same KM x KM cell are merged into one MODIS-pixel-sized
-   detection. Then  merged VIIRS ≈ the count VIIRS would give with 1 km pixels.
+1. Consolidate. A VIIRS pixel is ~375 m and a MODIS pixel ~1 km, so one fire lights up
+   several VIIRS pixels. Within each overpass, VIIRS detections in the same KM x KM cell
+   are merged into one fire. This consolidated VIIRS count is the "true VIIRS" record.
 
-2. Statistical correction for what merging can't remove (small fires only VIIRS sees,
-   MODIS flying two satellites vs one VIIRS satellite, off-nadir pixel growth):
-       log(1 + MODIS/day) = a + b * log(1 + mergedVIIRS/day)
-   fitted on the overlap months (MODIS as the target, so it's fitted in this
-   direction, not inverted from a VIIRS-from-MODIS fit).
+2. Back-cast. VIIRS only exists from 2012, MODIS from Nov 2000. On the months both
+   flew, a model learns consolidated VIIRS/day from MODIS/day:
+       log(1 + VIIRS/day) = a + b * log(1 + MODIS/day) [+ season, neighbouring months]
+   and is then applied to every MODIS month, giving the VIIRS that would probably have
+   been seen in 2000-2011 (and a prediction to compare with the true VIIRS from 2012).
 
 Validation is leave-one-year-out: every score is on a year the fit never saw, and the
-90% band comes from those out-of-year errors, so its coverage is honest.
+90% band comes from those out-of-year errors. A more complex candidate is used only if
+it cuts the held-out error by MIN_GAIN.
 
-3. Optional extra terms, kept only if they cut the held-out error: "fire clustering"
-   (VIIRS pixels per merged cell: big clumped fires vs scattered small burns),
-   season, and weather on the sampled days from NASA POWER (weather.py).
-
-build.py calls merged_keys() while it reads the raw files and add_to_modis() before
+build.py calls merged_keys() while it reads the raw files and add_backcast() before
 writing fires.html.
 """
 import math, statistics
@@ -97,109 +92,84 @@ def _quantile(v, q):
     return v[lo] + (v[min(lo + 1, len(v) - 1)] - v[lo]) * (i - lo)
 
 
-# Candidate models for log1p(MODIS/day). Each "fit" lists its terms; a term maps a month row to a number.
+# Candidate back-cast models for log1p(consolidated VIIRS/day); each term maps a month row to a number.
 TERMS = {
-    "log(1 + raw VIIRS/day)": lambda p: math.log1p(p["raw"]),
-    "log(1 + merged VIIRS/day)": lambda p: math.log1p(p["merged"]),
-    "fire clustering": lambda p: math.log((p["raw"] + 1) / (p["merged"] + 1)),   # VIIRS pixels per merged cell
+    "log(1 + MODIS/day)": lambda p: math.log1p(p["modis"]),
+    "MODIS previous month": lambda p: math.log1p(p["prev"]),
+    "MODIS next month": lambda p: math.log1p(p["next"]),
     "season sin": lambda p: math.sin(2 * math.pi * int(p["month"][5:7]) / 12),
     "season cos": lambda p: math.cos(2 * math.pi * int(p["month"][5:7]) / 12),
-    "cloud %": lambda p: p["w"]["cloud"],
-    "log(1 + rain mm/day)": lambda p: math.log1p(p["w"]["precip"]),
-    "humidity %": lambda p: p["w"]["humidity"],
-    "max temp °C": lambda p: p["w"]["tmax"],
-    "wind m/s": lambda p: p["w"]["wind"],
 }
-M_, CL = "log(1 + merged VIIRS/day)", "fire clustering"
-CANDIDATES = [  # (name, kind, terms or column); merged-VIIRS fits are listed simplest first
-    ("raw VIIRS ÷ constant ratio", "ratio", "raw"),
-    ("merged VIIRS ÷ constant ratio", "ratio", "merged"),
-    ("raw VIIRS, log-log fit", "fit", ["log(1 + raw VIIRS/day)"]),
-    ("merged VIIRS, log-log fit", "fit", [M_]),
-    ("merged + fire clustering", "fit", [M_, CL]),
-    ("merged + clustering + season", "fit", [M_, CL, "season sin", "season cos"]),
-    ("merged + clustering + cloud & rain", "fit", [M_, CL, "cloud %", "log(1 + rain mm/day)"]),
-    ("merged + clustering + all weather", "fit", [M_, CL, "cloud %", "log(1 + rain mm/day)", "humidity %", "max temp °C", "wind m/s"]),
+L_ = "log(1 + MODIS/day)"
+CANDIDATES = [  # (name, kind, terms), simplest first
+    ("constant ratio", "ratio", None),
+    ("log-log fit", "fit", [L_]),
+    ("+ season", "fit", [L_, "season sin", "season cos"]),
+    ("+ neighbouring months", "fit", [L_, "MODIS previous month", "MODIS next month"]),
+    ("+ neighbouring months + season", "fit", [L_, "MODIS previous month", "MODIS next month", "season sin", "season cos"]),
 ]
-MIN_GAIN = 0.005   # a more complex merged model must cut the held-out log error by this much to be chosen
+MIN_GAIN = 0.005   # a more complex model must cut the held-out log error by this much to be chosen
 
 
 def _loyo(P, kind, spec):
-    """Leave-one-year-out predictions of log1p(MODIS/day)."""
+    """Leave-one-year-out predictions of log1p(VIIRS/day)."""
     pred = []
     for p in P:
         tr = [q for q in P if q["month"][:4] != p["month"][:4]]
         if kind == "ratio":
-            k = sum(q["modis"] for q in tr) / sum(q[spec] for q in tr)
-            pred.append(math.log1p(k * p[spec]))
+            k = sum(q["viirs"] for q in tr) / sum(q["modis"] for q in tr)
+            pred.append(math.log1p(k * p["modis"]))
         else:
-            a, c = _fit([[TERMS[t](q) for t in spec] for q in tr], [math.log1p(q["modis"]) for q in tr])
+            a, c = _fit([[TERMS[t](q) for t in spec] for q in tr], [math.log1p(q["viirs"]) for q in tr])
             pred.append(a + sum(ci * TERMS[t](p) for ci, t in zip(c, spec)))
     return pred
 
 
-def _fill_weather(W):
-    """Months missing a variable (POWER cloud lags a few weeks) get that calendar month's average."""
-    clim = {}
-    for m, v in W.items():
-        for k, x in v.items():
-            clim.setdefault((m[5:7], k), []).append(x)
-    clim = {k: statistics.fmean(v) for k, v in clim.items()}
-    keys = {k for v in W.values() for k in v}
-    return lambda m: {k: W.get(m, {}).get(k, clim.get((m[5:7], k))) for k in keys}
-
-
-def add_to_modis(D, merged_by_km, W=None):
-    """merged_by_km: {km: {"YYYY-MM": merged VIIRS count}}; KM is the one used, the rest are a sensitivity check.
-    W: weather.monthly() or None (weather candidates are then skipped)."""
-    merged_monthly = merged_by_km[KM]
-    wx = _fill_weather(W) if W else (lambda m: None)
-    mod = {r[0]: r for r in D["sensors"]["MODIS"]["monthly"]}
-    row = lambda r: {"month": r[0], "raw": r[1] / r[2], "merged": merged_monthly.get(r[0], 0) / r[2], "w": wx(r[0])}
-    P = []
-    for r in D["sensors"]["VIIRS"]["monthly"]:
-        m = mod.get(r[0])
-        if r[2] and m and m[2]:
-            P.append(dict(row(r), modis=m[1] / m[2]))
-    y = [math.log1p(p["modis"]) for p in P]
-    cands = [c for c in CANDIDATES if W or not any(t in ("cloud %",) for t in (c[2] if c[1] == "fit" else []))]
+def add_backcast(D, merged_by_km):
+    """merged_by_km: {km: {"YYYY-MM": consolidated VIIRS count}}; KM is the one used, the rest are a sensitivity check.
+    Adds D["to_viirs"]: the back-cast for every MODIS month, the fit, and its held-out scores."""
+    merged = merged_by_km[KM]
+    mrows = D["sensors"]["MODIS"]["monthly"]
+    rate = {r[0]: r[1] / r[2] for r in mrows if r[2]}
+    order = [r[0] for r in mrows]
+    def row(mo):
+        i = order.index(mo)
+        nb = lambda k: rate.get(order[i + k]) if 0 <= i + k < len(order) and order[i + k] in rate else rate[mo]
+        return {"month": mo, "modis": rate[mo], "prev": nb(-1), "next": nb(1)}
+    vdays = {r[0]: r[2] for r in D["sensors"]["VIIRS"]["monthly"]}
+    vraw = {r[0]: r[1] for r in D["sensors"]["VIIRS"]["monthly"]}
+    P = [dict(row(mo), viirs=merged.get(mo, 0) / vdays[mo], raw=vraw[mo] / vdays[mo]) for mo in order if mo in rate and vdays.get(mo)]
+    y = [math.log1p(p["viirs"]) for p in P]
     scores, res = {}, {}
-    for name, kind, spec in cands:
+    for name, kind, spec in CANDIDATES:
         e = [t - q for t, q in zip(y, _loyo(P, kind, spec))]
         scores[name] = {"mae_log": statistics.fmean(abs(v) for v in e), "bias_log": statistics.fmean(e),
                         "mae_log_quiet": statistics.fmean(abs(v) for v, p in zip(e, P) if p["modis"] < 10)}
         res[name] = e
-    chosen = "merged VIIRS, log-log fit"
-    for name, kind, spec in cands:
-        if kind == "fit" and spec[0] == M_ and scores[name]["mae_log"] <= scores[chosen]["mae_log"] - MIN_GAIN:
+    chosen = "log-log fit"
+    for name, kind, spec in CANDIDATES:
+        if kind == "fit" and scores[name]["mae_log"] <= scores[chosen]["mae_log"] - MIN_GAIN:
             chosen = name
-    spec = next(c[2] for c in cands if c[0] == chosen)
+    spec = next(c[2] for c in CANDIDATES if c[0] == chosen)
     q_lo, q_hi = _quantile(res[chosen], 0.05), _quantile(res[chosen], 0.95)
     a, coef = _fit([[TERMS[t](p) for t in spec] for p in P], y)
     f_ = lambda p: a + sum(c * TERMS[t](p) for c, t in zip(coef, spec))
     r2 = 1 - sum((t - f_(p)) ** 2 for t, p in zip(y, P)) / sum((t - statistics.fmean(y)) ** 2 for t in y)
-
-    monthly = []
-    for r in D["sensors"]["VIIRS"]["monthly"]:
-        if not r[2]:
-            monthly.append([r[0], None, None, None]); continue
-        v = f_(row(r)); monthly.append([r[0]] + [round(math.expm1(v + d), 3) for d in (0, q_lo, q_hi)])
+    monthly = [[mo] + ([round(math.expm1(f_(row(mo)) + d), 3) for d in (0, q_lo, q_hi)] if mo in rate else [None] * 3) for mo in order]
     years = defaultdict(list)
     for mo, *v in monthly:
         if v[0] is not None:
             years[mo[:4]].append(v)
     yearly = {k: [round(statistics.fmean(c[i] for c in v), 3) for i in range(3)] for k, v in years.items()}
-    raw_tot = sum(p["raw"] for p in P); mer_tot = sum(p["merged"] for p in P); mod_tot = sum(p["modis"] for p in P)
-    days = {r[0]: r[2] for r in D["sensors"]["VIIRS"]["monthly"]}
-    sens = {str(k): sum(mm.get(p["month"], 0) / days[p["month"]] for p in P) / mod_tot for k, mm in sorted(merged_by_km.items())}
-    D["to_modis"] = {
+    mod_tot = sum(p["modis"] for p in P)
+    sens = {str(k): sum(mm.get(p["month"], 0) / vdays[p["month"]] for p in P) / mod_tot for k, mm in sorted(merged_by_km.items())}
+    D["to_viirs"] = {
         "km": KM, "monthly": monthly, "yearly": yearly,
-        "merged_counts": {k: merged_monthly[k] for k in sorted(merged_monthly)},
+        "merged_counts": {k: merged[k] for k in sorted(merged)},
         "fit": {"chosen": chosen, "intercept": a, "terms": [[t, c] for t, c in zip(spec, coef)], "r2": r2, "n": len(P),
-                "years": f"{P[0]['month'][:4]}–{P[-1]['month'][:4]}", "order": [c[0] for c in cands], "min_gain": MIN_GAIN,
-                "weather": {"source": "NASA POWER daily, mean of sampled days at 8 fire-prone points"} if W else None,
+                "years": f"{P[0]['month'][:4]}–{P[-1]['month'][:4]}", "order": [c[0] for c in CANDIDATES], "min_gain": MIN_GAIN,
                 "interval90_log": [q_lo, q_hi], "coverage90": sum(q_lo <= v <= q_hi for v in res[chosen]) / len(res[chosen]),
-                "ratio_raw": raw_tot / mod_tot, "ratio_merged": mer_tot / mod_tot, "scores": scores,
-                "sensitivity": sens},
+                "ratio_raw": sum(p["raw"] for p in P) / mod_tot, "ratio_merged": sum(p["viirs"] for p in P) / mod_tot,
+                "scores": scores, "sensitivity": sens},
     }
     return D

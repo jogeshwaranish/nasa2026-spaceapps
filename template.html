@@ -89,19 +89,19 @@ a { color: inherit; }
   <div class="card">
     <div class="row">
       <h2>Fire detections per day</h2>
-      <div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (Terra + Aqua)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (Suomi NPP)</span><span id="hleg"></span></div>
+      <div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (Terra + Aqua)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (Suomi NPP), consolidated to 1 km</span><span id="hleg"></span></div>
       <span class="grow"></span>
       <div class="seg" id="mode"><button data-m="month" aria-pressed="true">Monthly</button><button data-m="year" aria-pressed="false">Yearly</button></div>
     </div>
     <div class="row"><span class="note" style="margin:0">Model line:</span>
-      <div class="seg" id="hmode"><button data-h="to_modis" aria-pressed="true">VIIRS in MODIS units</button><button data-h="" aria-pressed="false">Off</button></div>
+      <div class="seg" id="hmode"><button data-h="to_viirs" aria-pressed="true">Model prediction (from MODIS)</button><button data-h="" aria-pressed="false">Off</button></div>
     </div>
     <div class="chartwrap"><svg id="chart"></svg><div id="tip"></div></div>
     <p class="note">Average detections per day over the sampled days in each period. Click the chart to show that year on the maps.</p>
   </div>
 
   <div class="card" id="tmcard">
-    <h2>VIIRS in MODIS units (merge pixels, then calibrate)</h2>
+    <h2>Consolidating VIIRS, then predicting it from MODIS (back-cast)</h2>
     <p class="note" id="tmtxt" style="margin-top:6px"></p>
     <div class="df"><table id="tmtbl"></table></div>
     <p class="note" id="tmsens"></p>
@@ -169,32 +169,27 @@ $('tiles').innerHTML = [
   ['MODIS detections' + partial, total(S.MODIS).toLocaleString(), `${S.MODIS.first.slice(0, 4)}–${S.MODIS.last.slice(0, 4)}`],
   ['VIIRS detections' + partial, total(S.VIIRS).toLocaleString(), `${S.VIIRS.first.slice(0, 4)}–${S.VIIRS.last.slice(0, 4)}`],
   ['VIIRS detections per MODIS detection', rm ? (rv / rm).toFixed(1) + '×' : '–', `over the shared record, ${S.VIIRS.first.slice(0, 4)} onward`],
-  [`…after merging VIIRS pixels to ${D.to_modis.km} km`, D.to_modis.fit.ratio_merged.toFixed(1) + '×', 'same fire, same overpass, same cell → one detection'],
+  [`…after consolidating VIIRS to ${D.to_viirs.km} km`, D.to_viirs.fit.ratio_merged.toFixed(1) + '×', 'same fire, same overpass, same cell → one fire'],
 ].map(t => `<div class="tile"><div class="k">${t[0]}</div><div class="v">${t[1]}</div><div class="n">${t[2]}</div></div>`).join('');
 
-// ---- VIIRS in MODIS units ----------------------------------------------------
+// ---- consolidation + back-cast ---------------------------------------------
 {
-  const T = D.to_modis, f = T.fit, e = x => '×/÷ ' + Math.exp(x).toFixed(2), sg = x => Math.abs(x) < 0.005 ? '0.00' : (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(2);
+  const T = D.to_viirs, f = T.fit, e = x => '×/÷ ' + Math.exp(x).toFixed(3), sg = x => Math.abs(x) < 0.005 ? '0.00' : (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(2);
   const pm = x => (x < 0 ? ' − ' : ' + ') + Math.abs(x).toPrecision(2);
-  const eq = `log(1 + MODIS/day) = ${f.intercept.toFixed(2)}` + f.terms.map(([t, c]) => `${pm(c)} · ${t}`).join('');
-  $('tmtxt').innerHTML = `MODIS is the reference because it has the long record, so 2000–2011 is shown as measured and only VIIRS is converted. ` +
-    `<b>Step 1, merge:</b> a VIIRS pixel is about 375 m and a MODIS pixel about 1 km, so one fire lights up several VIIRS pixels. ` +
-    `Within each overpass, VIIRS detections in the same ${T.km} km cell are merged into one. That cuts VIIRS from ${f.ratio_raw.toFixed(1)}× to ${f.ratio_merged.toFixed(1)}× MODIS. ` +
-    `<b>Step 2, calibrate</b> what merging can't remove (small fires only VIIRS sees; MODIS flies on two satellites, VIIRS here on one). ` +
-    `<i>Fire clustering</i> is VIIRS pixels per merged cell: high for big clumped wildfires, near 1 for scattered small burns, which VIIRS over-counts relative to MODIS. ` +
-    `Model used (<i>${f.chosen}</i>), fitted on ${f.n} overlap months (${f.years}), R² = ${f.r2.toFixed(2)}:<br><code>${eq}</code><br>` +
-    `The dashed blue line is the result; where it tracks the solid MODIS line, VIIRS could carry the MODIS record forward. ` +
+  const eq = `log(1 + VIIRS/day) = ${f.intercept.toFixed(2)}` + f.terms.map(([t, c]) => `${pm(c)} · ${t}`).join('');
+  $('tmtxt').innerHTML = `VIIRS is the reference: it sees fire at 375 m, but it only exists from 2012, while MODIS goes back to 2000. ` +
+    `<b>Step 1, consolidate:</b> one fire lights up several 375 m VIIRS pixels, so within each overpass, VIIRS detections in the same ${T.km} km cell are counted as one fire. ` +
+    `That cuts VIIRS from ${f.ratio_raw.toFixed(1)}× to ${f.ratio_merged.toFixed(1)}× MODIS, and this consolidated count is the true VIIRS record (orange line). ` +
+    `<b>Step 2, back-cast:</b> on the ${f.n} months both satellites flew (${f.years}), a model learns consolidated VIIRS from MODIS, then predicts every month since 2000, ` +
+    `so 2000–2011 gets the VIIRS that would probably have been seen. From 2012 the dashed line can be checked against the true VIIRS. ` +
+    `Model used (<i>${f.chosen}</i>), R² = ${f.r2.toFixed(2)}:<br><code>${eq}</code><br>` +
     `The band is a 90% interval built from errors on years the fit never saw, and it holds ${Math.round(f.coverage90 * 100)}% of months.`;
-  $('tmtbl').innerHTML = `<thead><tr><th>Predicting MODIS/day from…</th><th>Typical error</th><th>Quiet months (&lt;10/day)</th><th>Bias</th></tr></thead><tbody>` +
+  $('tmtbl').innerHTML = `<thead><tr><th>Predicting consolidated VIIRS/day from MODIS…</th><th>Typical error</th><th>Quiet months (MODIS &lt;10/day)</th><th>Bias</th></tr></thead><tbody>` +
     f.order.map(k => { const v = f.scores[k]; return `<tr><th>${k}${k === f.chosen ? ' (shown)' : ''}</th><td>${e(v.mae_log)}</td><td>${e(v.mae_log_quiet)}</td><td>${sg(v.bias_log)} log</td></tr>`; }).join('') + '</tbody>';
-  const S = f.scores, base = S['merged + fire clustering'], wx = f.order.filter(k => /weather|cloud/.test(k));
-  const bestWx = wx.reduce((a, k) => !a || S[k].mae_log < S[a].mae_log ? k : a, null);
-  $('tmsens').innerHTML = `Scored leave-one-year-out on monthly totals. A model with more terms is used only if it cuts the held-out error by at least ${(f.min_gain * 100).toFixed(1)}%. ` +
-    `Fire clustering is the term that helps, mostly in quiet months (${e(S['merged VIIRS, log-log fit'].mae_log_quiet)} → ${e(base.mae_log_quiet)}); season adds a little on top. ` +
-    (bestWx ? `Weather on the sampled days (NASA POWER cloud, rain, humidity, max temperature and wind at 8 fire-prone points) ` +
-      (S[bestWx].mae_log < base.mae_log - f.min_gain ? `helps: ${e(S[bestWx].mae_log)} vs ${e(base.mae_log)} without it. ` :
-        `does not help: ×/÷ ${Math.exp(S[bestWx].mae_log).toFixed(3)} at best vs ×/÷ ${Math.exp(base.mae_log).toFixed(3)} without it — fire type explains the quiet-month gap better than the weather does. `) : '') +
-    `Merge cell size changes the merged ratio: ` + Object.entries(f.sensitivity).map(([k, v]) => `${(+k).toFixed(2)} km → ${v.toFixed(1)}×`).join(', ') + '.';
+  const S = f.scores;
+  $('tmsens').innerHTML = `Scored leave-one-year-out on monthly totals: each year is predicted by a fit that never saw it. A model with more terms is used only if it cuts the held-out error by at least ${(f.min_gain * 100).toFixed(1)}%. ` +
+    `The simple log-log fit already does most of the work (${e(S['log-log fit'].mae_log)}); season and neighbouring months only add a little. ` +
+    `Merge cell size changes the consolidated ratio: ` + Object.entries(f.sensitivity).map(([k, v]) => `${(+k).toFixed(2)} km → ${v.toFixed(1)}×`).join(', ') + '.';
 }
 
 // ---- time series ----------------------------------------------------------
@@ -206,14 +201,16 @@ function series(s, mode) {           // -> [{t, w, label, v}] ; v = mean detecti
       return { t: y + (m - 0.5) / 12, y, label: r[0], v: r[1], lo: r[2], hi: r[3] }; });
     return Object.entries(H.yearly).map(([y, r]) => ({ t: +y + 0.5, y: +y, label: y, v: r[0], lo: r[1], hi: r[2] }));
   }
+  const MC = D.to_viirs.merged_counts, cnt = r => s === S.VIIRS ? MC[r[0]] || 0 : r[1];   // VIIRS line = consolidated fires
   if (mode === 'month') return s.monthly.map(r => {
     const y = +r[0].slice(0, 4), m = +r[0].slice(5, 7);
-    return { t: y + (m - 0.5) / 12, y, label: new Date(y, m - 1).toLocaleString('en', { month: 'short', year: 'numeric' }), v: r[2] ? r[1] / r[2] : null };
+    return { t: y + (m - 0.5) / 12, y, label: new Date(y, m - 1).toLocaleString('en', { month: 'short', year: 'numeric' }), v: r[2] ? cnt(r) / r[2] : null };
   });
-  return Object.entries(s.years).map(([y, r]) => ({ t: +y + 0.5, y: +y, label: y, v: r.days ? r.count / r.days : null }));
+  return Object.entries(s.years).map(([y, r]) => { const c = s === S.VIIRS ? s.monthly.filter(q => q[0].startsWith(y)).reduce((t, q) => t + cnt(q), 0) : r.count;
+    return { t: +y + 0.5, y: +y, label: y, v: r.days ? c / r.days : null }; });
 }
-let mode = 'month', hmode = 'to_modis', selYear, ser, sc;
-const HM = { to_modis: ['--modis', 'VIIRS in MODIS units (model)'] };
+let mode = 'month', hmode = 'to_viirs', selYear, ser, sc;
+const HM = { to_viirs: ['--text', 'Model prediction (from MODIS), 90% range'] };
 const svg = $('chart'), NS = 'http://www.w3.org/2000/svg';
 const el = (n, a, txt) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
 
@@ -244,8 +241,8 @@ function drawChart() {
     const hp = ser.H.filter(p => p.v != null), cl = v => Math.min(v, top);
     if (hp.length) {
       const up = hp.map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.hi)).toFixed(1)), dn = hp.slice().reverse().map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.lo)).toFixed(1));
-      svg.append(el('path', { d: 'M' + up.join('L') + 'L' + dn.join('L') + 'Z', fill: css(HM[hmode][0]), opacity: .13 }));
-      dl = el('path', { d: 'M' + hp.map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.v)).toFixed(1)).join('L'), fill: 'none', stroke: css(HM[hmode][0]), 'stroke-width': 1.5, 'stroke-dasharray': '5 3' });
+      svg.append(el('path', { d: 'M' + up.join('L') + 'L' + dn.join('L') + 'Z', fill: css(HM[hmode][0]), opacity: .08 }));
+      dl = el('path', { d: 'M' + hp.map(p => x(p.t).toFixed(1) + ' ' + y(cl(p.v)).toFixed(1)).join('L'), fill: 'none', stroke: css(HM[hmode][0]), 'stroke-width': 1.75, 'stroke-dasharray': '5 3' });
     }
   }
   for (const k of ['MODIS', 'VIIRS']) {
@@ -268,8 +265,8 @@ svg.addEventListener('mousemove', e => {
   const h = ser.H.find(p => Math.abs(p.t - a.t) < 1e-6);
   const val = p => !p ? '<span class="muted">not launched</span>' : p.v == null ? '<span class="muted">no sample</span>' : fmt(p.v) + ' / day';
   const tip = $('tip');
-  tip.innerHTML = `<b>${a.label}</b><i class="sw" style="background:var(--modis)"></i>MODIS&nbsp; ${val(a)}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS&nbsp;&nbsp; ${val(b)}` +
-    (h && h.v != null ? `<br><i class="sw" style="background:var(${HM[hmode][0]});opacity:.6"></i>Model&nbsp;&nbsp; ${fmt(h.v)} / day <span class="muted">(${fmt(h.lo)}–${fmt(h.hi)}) · VIIRS in MODIS units</span>` : '') +
+  tip.innerHTML = `<b>${a.label}</b><i class="sw" style="background:var(--modis)"></i>MODIS&nbsp; ${val(a)}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS (consolidated)&nbsp; ${val(b)}` +
+    (h && h.v != null ? `<br><i class="sw" style="background:var(${HM[hmode][0]});opacity:.6"></i>Model prediction&nbsp; ${fmt(h.v)} / day <span class="muted">(90%: ${fmt(h.lo)}–${fmt(h.hi)})</span>` : '') +
     (a.v && b && b.v ? `<br><span class="muted">VIIRS saw ${(b.v / a.v).toFixed(1)}× as many</span>` : '');
   tip.style.display = 'block';
   const px = x(a.t), tw = tip.offsetWidth;

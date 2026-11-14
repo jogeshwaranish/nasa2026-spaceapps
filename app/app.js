@@ -14,11 +14,11 @@ const monKey = m => `${2000 + Math.floor(m / 12)}-${String(m % 12 + 1).padStart(
 const monLabel = m => `${MON[m % 12]} ${2000 + Math.floor(m / 12)}`;
 const fmt = n => n == null || !isFinite(n) ? '–' : Math.abs(n) >= 100 ? Math.round(n).toLocaleString() : Math.abs(n) >= 10 ? n.toFixed(1) : n.toFixed(2);
 const acresS = a => a >= 1e4 ? Math.round(a / 1e3) + 'k' : a >= 1e3 ? (a / 1e3).toFixed(1) + 'k' : String(a);
-const UNIT = { harm: 'MODIS-equivalent hotspots', raw: 'raw detections' };
+const UNIT = { harm: 'consolidated VIIRS hotspots', raw: 'raw detections' };
 const lonS = v => `${Math.abs(v).toFixed(2)}°${v < 0 ? 'W' : 'E'}`, latS = v => `${Math.abs(v).toFixed(2)}°${v < 0 ? 'S' : 'N'}`;
 const boxS = () => `${latS(st.s)}–${latS(st.n)}, ${lonS(st.w)}–${lonS(st.e)}`;
 const causeS = c => /^missing|undetermined/i.test(c || '') ? 'Unknown' : String(c).replace(/\/.*$/, '');
-const fireName = n => /complex$/i.test(n) ? n : n + ' Fire';
+const fireName = n => n;   // fires.json titles are display-ready ('Creek Fire', 'August Complex (Doe Fire)')
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 const PRESETS = [   // approximate boxes (W, S, E, N)
@@ -44,13 +44,13 @@ function parseCSV(text) {
   const lines = text.split(/\r?\n/).filter(l => l && !l.startsWith('#'));
   const cols = lines[0].split(',').map(c => c.trim().toLowerCase()), ix = n => cols.indexOf(n);
   const need = ['date', 'lat', 'lon', 'sensor'].filter(c => ix(c) < 0);
-  if (need.length) throw new Error(`missing column(s): ${need.join(', ')}. Expected date,time,lat,lon,sensor,satellite,daynight,confidence,frp,pixels,modis_equiv`);
+  if (need.length) throw new Error(`missing column(s): ${need.join(', ')}. Expected date,time,lat,lon,sensor,satellite,daynight,confidence,frp,pixels,viirs_equiv`);
   const n = lines.length - 1;
   const h = { n, day: new Int32Array(n), mon: new Int16Array(n), time: new Uint16Array(n), lat: new Float32Array(n), lon: new Float32Array(n),
     sensor: new Uint8Array(n), sat: [], night: new Uint8Array(n), conf: new Uint8Array(n), frp: new Float32Array(n),
-    pix: new Uint16Array(n), weq: new Float32Array(n), hasWeq: ix('modis_equiv') >= 0 };
+    pix: new Uint16Array(n), weq: new Float32Array(n), hasWeq: ix('viirs_equiv') >= 0 };
   const c = { date: ix('date'), time: ix('time'), lat: ix('lat'), lon: ix('lon'), sensor: ix('sensor'), sat: ix('satellite'),
-    dn: ix('daynight'), conf: ix('confidence'), frp: ix('frp'), pix: ix('pixels'), weq: ix('modis_equiv') };
+    dn: ix('daynight'), conf: ix('confidence'), frp: ix('frp'), pix: ix('pixels'), weq: ix('viirs_equiv') };
   const CONF = { low: 0, l: 0, nominal: 1, n: 1, high: 2, h: 2 }, cache = new Map();
   let k = 0;
   for (let i = 1; i <= n; i++) {
@@ -86,12 +86,14 @@ function useData(h, meta, label) {
   const hm = META.harmonization;
   $('how').innerHTML = (META.sampling ? `<p><b>Sampled data.</b> ${esc(META.sampling)}, so counts cover those days only and every rate is <i>per sampled day</i>. A date range with no sampled days shows nothing.</p>` :
       '<p>Sampled days are taken to be the days present in the file.</p>') +
-    (hm ? `<p><b>Harmonized.</b> MODIS (1 km) is the reference. VIIRS (375 m) pixels in the same ${hm.merge_km} km cell within one overpass are merged into one hotspot, then calibrated to MODIS (${esc(hm.model)}; typical monthly error ×/÷ ${hm.typical_error}). The line is observed MODIS; harmonized VIIRS fills any month without MODIS and is drawn dashed as the model's prediction for comparison. ${esc(hm.note)}</p>` :
-      h.hasWeq ? '' : '<p class="err">This file has no modis_equiv column, so VIIRS can only be shown as raw detections.</p>') +
+    (hm ? `<p><b>Harmonized to VIIRS.</b> VIIRS (375 m) pixels in the same ${hm.merge_km} km cell within one overpass are consolidated into one fire: that is the <b>true VIIRS</b> record, from 2012. ` +
+      `A model trained on ${esc(hm.trained)} learns consolidated VIIRS from MODIS (${esc(hm.model)}; R² ${hm.r2}, typical monthly error ×/÷ ${hm.typical_error} on years it never saw), then predicts VIIRS for every MODIS month: ` +
+      `that <b>model prediction</b> is the only record for 2000–2011 and is drawn next to true VIIRS from 2012 so you can check it. ${esc(hm.note)}</p>` :
+      h.hasWeq ? '' : '<p class="err">This file has no viirs_equiv column, so each sensor can only be shown as raw detections.</p>') +
     (FIRESRC ? `<p><b>Recorded fires</b> are from ${esc(FIRESRC.source)}. Their location is ${esc(FIRESRC.location)}. Wikipedia links: ${esc(FIRESRC.wikipedia)}; other fires link to a Wikipedia search.</p>` : '') +
     '<p><a href="../fires.html">Full method and sensor comparison →</a></p>';
   $('foot').innerHTML = `${esc(META.source || label)} · ${h.n.toLocaleString()} hotspots` + (META.generated ? ` · built ${esc(META.generated)}` : '');
-  if (!h.hasWeq) st.units = 'raw';
+  if (!h.hasWeq) { st.units = 'raw'; st.view = 'sensors'; }   // a file without viirs_equiv can only be shown unconverted
   initMap();
   if (!readHash()) { setBox(META.bbox); st.from = dmin; st.to = dmax; $('preset').value = '0'; }
   syncInputs(); fitRegion(); update();
@@ -116,7 +118,8 @@ async function boot() {
 }
 function setFires(j) {
   FIRESRC = j;
-  FIRES = (j.fires || []).map(f => { const a = toDay(f.start), b = Math.max(a, toDay(f.end || f.start)); return { ...f, a, b, ma: monOf(a), mb: monOf(b) }; });
+  FIRES = (j.fires || []).map(f => { const a = toDay(f.start), b = Math.max(a, toDay(f.end || f.start));
+    return { ...f, name: f.title || (/complex$/i.test(f.name) ? f.name : f.name + ' Fire'), a, b, ma: monOf(a), mb: monOf(b) }; });
 }
 async function onFile(ev) {
   const f = ev.target.files[0]; if (!f) return;
@@ -133,18 +136,11 @@ function setBox([w, s, e, n]) { Object.assign(st, { w: Math.min(w, e), e: Math.m
 function syncInputs() {
   for (const k of ['w', 's', 'e', 'n']) $(k).value = (+st[k]).toFixed(2);
   $('from').value = dayStr(st.from); $('to').value = dayStr(st.to);
-  $('sM').checked = st.sens[0]; $('sV').checked = st.sens[1]; $('conf').value = st.conf;
-  [...$('units').children].forEach(b => { b.setAttribute('aria-pressed', b.dataset.u === st.units); b.disabled = b.dataset.u === 'harm' && !H.hasWeq; });
-  if (st.units === 'raw') st.view = 'sensors';
-  $('view').children[0].disabled = st.units === 'raw';
-  [...$('view').children].forEach(b => b.setAttribute('aria-pressed', b.dataset.v === st.view));
+  $('conf').value = st.conf;
 }
 function writeHash() {
   const p = new URLSearchParams({ bbox: [st.w, st.s, st.e, st.n].map(v => (+v).toFixed(3)).join(','), from: dayStr(st.from), to: dayStr(st.to) });
-  if (!st.sens[0] || !st.sens[1]) p.set('sensors', SENS.filter((_, j) => st.sens[j]).join(','));
-  if (st.units !== 'harm') p.set('units', st.units);
   if (st.conf) p.set('conf', st.conf);
-  if (st.view !== 'one') p.set('view', st.view);
   history.replaceState(null, '', '#' + p);
 }
 function readHash() {
@@ -152,8 +148,7 @@ function readHash() {
   const p = new URLSearchParams(location.hash.slice(1)), bb = (p.get('bbox') || '').split(',').map(Number);
   if (bb.length !== 4 || bb.some(v => !isFinite(v)) || !p.get('from') || !p.get('to')) return false;
   setBox(bb); st.from = toDay(p.get('from')); st.to = toDay(p.get('to'));
-  const s = (p.get('sensors') || 'MODIS,VIIRS').split(','); st.sens = SENS.map(k => s.includes(k));
-  const u = p.get('units'); st.units = u === 'raw' || !H.hasWeq ? 'raw' : 'harm'; st.conf = +p.get('conf') || 0; st.view = p.get('view') === 'sensors' ? 'sensors' : 'one';
+  st.conf = +p.get('conf') || 0;
   const pi = PRESETS.findIndex(([, b]) => b.every((v, i) => Math.abs(v - bb[i]) < 1e-3));
   $('preset').value = pi >= 0 ? String(pi) : 'custom';
   return true;
@@ -176,11 +171,7 @@ $('quick').addEventListener('change', () => {
   else if (v[0] === 'y') { st.from = Math.max(dmin, toDay(v.slice(1) + '-01-01')); st.to = Math.min(dmax, toDay(v.slice(1) + '-12-31')); }
   syncInputs(); schedule();
 });
-$('sM').addEventListener('change', () => { st.sens[0] = $('sM').checked; schedule(); });
-$('sV').addEventListener('change', () => { st.sens[1] = $('sV').checked; schedule(); });
 $('conf').addEventListener('change', () => { st.conf = +$('conf').value; schedule(); });
-$('units').addEventListener('click', ev => { const u = ev.target.dataset.u; if (!u || ev.target.disabled) return; if (st.units === 'raw' && u !== 'raw') st.view = 'one'; st.units = u; syncInputs(); schedule(); });
-$('view').addEventListener('click', ev => { const v = ev.target.dataset.v; if (!v || ev.target.disabled) return; st.view = v; syncInputs(); writeHash(); $('tiles').innerHTML = tilesHTML(A); render(); });
 
 // ---------------------------------------------------------------- analytics
 const lowerBound = (a, x) => { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < x) lo = m + 1; else hi = m; } return lo; };
@@ -188,8 +179,8 @@ const sampledIn = (j, from, to) => lowerBound(SAMPLED[j], to + 1) - lowerBound(S
 
 function analyse() {
   const mode = st.units, harm = mode !== 'raw', on = st.sens.slice();   // harm = sensors converted to one scale
-  const wt = mode === 'harm' ? i => H.sensor[i] ? H.weq[i] : 1 : i => H.sensor[i] ? H.pix[i] : 1;
-  const idx = [], allM = new Map(), inM = new Map();
+  const wt = mode === 'harm' ? i => H.sensor[i] ? 1 : H.weq[i] : i => H.sensor[i] ? H.pix[i] : 1;   // harm: MODIS -> predicted VIIRS, VIIRS = consolidated fires
+  const idx = [], allM = new Map(), inM = new Map(), hx = new Map();   // hx: month -> [MODIS detections, raw VIIRS pixels, consolidated VIIRS, model prediction]
   const per = SENS.map((name, j) => ({ name, on: on[j], hotspots: 0, count: 0, frp: [], night: 0, days: sampledIn(j, st.from, st.to) }));
   for (let i = 0; i < H.n; i++) {
     const j = H.sensor[i]; if (!on[j] || H.conf[i] < st.conf) continue;
@@ -199,19 +190,24 @@ function analyse() {
     const d = H.day[i]; if (d < st.from || d > st.to) continue;
     idx.push(i); const p = per[j]; p.hotspots++; p.count += w; p.frp.push(H.frp[i]); if (H.night[i]) p.night += w;
     let q = inM.get(m); if (!q) inM.set(m, q = [0, 0]); q[j] += w;
+    let x = hx.get(m); if (!x) hx.set(m, x = [0, 0, 0, 0]); if (j) { x[1] += H.pix[i]; x[2]++; } else { x[0]++; x[3] += H.weq[i]; }
   }
   for (const p of per) { p.rate = p.days ? p.count / p.days : null; p.frp.sort((a, b) => a - b); p.frpMedian = p.frp.length ? p.frp[p.frp.length >> 1] : null; }
-  // The line is MODIS as observed (the reference); a month with no MODIS is filled by VIIRS converted to MODIS units.
-  const comb = (r, days) => mode === 'raw' ? null : on[0] && days[0] ? r[0] : on[1] ? r[1] : null;
+  // Harmonized record in VIIRS units: true (consolidated) VIIRS where VIIRS flew, else the model's prediction from MODIS.
+  const comb = (r, days) => mode === 'raw' ? null : on[1] && days[1] ? r[1] : on[0] && days[0] ? r[0] : null;
   const m0 = monOf(st.from), m1 = monOf(st.to), clip = [0, 1].map(j => { const mm = new Map(), a = SAMPLED[j];
     for (let k = lowerBound(a, st.from); k < a.length && a[k] <= st.to; k++) { const x = monOf(a[k]); mm.set(x, (mm.get(x) || 0) + 1); } return mm; });
   const series = [];
   for (let m = m0; m <= m1; m++) {
     const c = inM.get(m) || [0, 0], days = [clip[0].get(m) || 0, clip[1].get(m) || 0], rate = [0, 1].map(j => on[j] && days[j] ? c[j] / days[j] : null);
     const cv = comb(rate, days);
-    const pred = mode === 'harm' && on[1] ? rate[1] : null;   // VIIRS run through the calibration model
-    series.push({ m, t: 2000 + (m + .5) / 12, count: c, days, rate, comb: cv, pred, est: mode !== 'raw' && cv != null && !(on[0] && days[0]), fires: [] });
+    const pred = mode === 'harm' && on[0] ? rate[0] : null;   // MODIS run through the back-cast model
+    const x = hx.get(m), modis = days[0] ? (x ? x[0] : 0) / days[0] : null;
+    series.push({ m, t: 2000 + (m + .5) / 12, count: c, days, rate, comb: cv, pred, modis, viirs: mode === 'harm' && on[1] && days[1] ? rate[1] : null,
+      est: mode !== 'raw' && cv != null && !(on[1] && days[1]), fires: [] });
   }
+  const hr = series.filter(s => s.days[0] && s.days[1]).map(s => { const x = hx.get(s.m) || [0, 0, 0, 0], d0 = s.days[0], d1 = s.days[1];
+    return { m: s.m, t: s.t, d: d1, modis: x[0] / d0, raw: x[1] / d1, merged: x[2] / d1, pred: x[3] / d0 }; });
   const wavg = rows => { let s = 0, d = 0; for (const r of rows) { const dd = Math.max(...r.days); if (r.comb != null && dd) { s += r.comb * dd; d += dd; } } return d ? s / d : null; };
   const allRows = [], ks = SMON.flatMap(x => [...x.keys()]), lo = Math.min(...ks), hi = Math.max(...ks);
   for (let m = lo; m <= hi; m++) { const c = allM.get(m) || [0, 0], days = [SMON[0].get(m) || 0, SMON[1].get(m) || 0];
@@ -225,18 +221,19 @@ function analyse() {
   for (const i of idx) { const k = Math.floor(H.lon[i] / mc) + ',' + Math.floor(H.lat[i] / mc); let g = grid.get(k); if (!g) grid.set(k, g = [0, 0]); g[H.sensor[i]] += wt(i); }
   const rateOf = c => { const r = [0, 1].filter(j => on[j] && per[j].days).map(j => c[j] / per[j].days); return r.length ? r.reduce((a, b) => a + b) / r.length : 0; };
   const cells = [...grid].map(([k, c]) => { const [x, y] = k.split(',').map(Number); return [x * mc, y * mc, rateOf(c)]; }).filter(c => c[2] > 0);
-  return { idx, per, series, overall: wavg(series), longTerm: wavg(allRows), fires, season, cells, mc, harm, mode, agree: am ? av / am : null,
+  return { idx, per, series, hr, overall: wavg(series), longTerm: wavg(allRows), fires, season, cells, mc, harm, mode, agree: am ? av / am : null,
     estMonths: series.filter(s => s.est).length, unit: UNIT[mode] };
 }
-const SNAME = { harm: ['MODIS', 'VIIRS (MODIS units)'], raw: ['MODIS', 'VIIRS'] };
-const lines = a => st.view === 'one' && a.harm ? [{ key: 'comb', color: 'heat', name: 'Fire activity (MODIS units)' }] :
+const SNAME = { harm: ['Model prediction (from MODIS)', 'True VIIRS'], raw: ['MODIS', 'VIIRS'] };
+const lines = a => st.view === 'one' && a.harm ? [{ key: 'viirs', color: 'heat', name: 'True VIIRS (consolidated, 2012 on)' }] :
   [0, 1].filter(j => a.per[j].on).map(j => ({ key: j, color: j, name: SNAME[a.mode][j] }));
 // model prediction overlay (Combined view): the other sensor run through the model, with its 90% range from held-out-year errors
-const predOf = a => st.view === 'one' && a.harm && META.harmonization ? { q: META.harmonization.interval90_log || null, name: 'Model: MODIS predicted from VIIRS' } : null;
+const predOf = a => st.view === 'one' && a.harm && META.harmonization ? { q: META.harmonization.interval90_log || null, name: 'Model prediction (from MODIS)' } : null;
+const slines = a => a.harm ? [{ key: 'comb', color: 'heat', name: 'Fire activity (true VIIRS, or model prediction before 2012)' }] : lines(a);
 const band = (PR, v) => PR && PR.q && v != null ? [v * Math.exp(PR.q[0]), v * Math.exp(PR.q[1])] : null;
 const perDay = () => 'hotspots / day';
-const pick = (s, key) => key === 'comb' ? s.comb : s.rate[key];
-const shown = (a, s) => { const v = lines(a).map(l => pick(s, l.key)).filter(x => x != null); return v.length ? Math.max(...v) : null; };
+const pick = (s, key) => key === 'comb' ? s.comb : key === 'viirs' ? s.viirs : s.rate[key];
+const shown = (a, s) => { if (a.harm) return s.comb; const v = lines(a).map(l => pick(s, l.key)).filter(x => x != null); return v.length ? Math.max(...v) : null; };
 const peakOf = a => a.series.reduce((b, s) => shown(a, s) != null && (!b || shown(a, s) > shown(a, b)) ? s : b, null);
 
 // ---------------------------------------------------------------- charts (explicit colours, so exports are self-contained)
@@ -262,13 +259,13 @@ function monthlyChart(a, W, P, interactive) {
   const t0 = S[0].t - 1 / 24, t1 = S[S.length - 1].t + 1 / 24;
   const x = t => m.l + (t - t0) / Math.max(t1 - t0, 1e-9) * (W - m.l - m.r), y = (v, top) => Hh - m.b - v / top * (Hh - m.t - m.b);
   const PR = predOf(a);
-  const top = axisY(svg, P, m, W, Math.max(0, ...S.map(s => Math.max(shown(a, s) ?? 0, PR ? s.pred ?? 0 : 0))), y);
-  if (L.some(l => l.key === 'comb')) {   // shade back-cast months
+  const top = axisY(svg, P, m, W, Math.max(0, ...S.map(s => Math.max(shown(a, s) ?? 0, s.viirs ?? 0, PR ? s.pred ?? 0 : 0))), y);
+  if (a.harm) {   // shade the months before VIIRS, where only the prediction exists
     let i = 0;
     while (i < S.length) { if (!S[i].est) { i++; continue; } let j = i; while (j + 1 < S.length && S[j + 1].est) j++;
       const xa = Math.max(m.l, x(S[i].t - 1 / 24)), xb = Math.min(W - m.r, x(S[j].t + 1 / 24));
       svg.append(el('rect', { x: xa, y: m.t, width: xb - xa, height: Hh - m.t - m.b, fill: P.text, 'fill-opacity': .045 }));
-      if (xb - xa > 90) svg.append(el('text', { x: xa + 6, y: m.t + 13, fill: P.text2, 'font-size': 11 }, 'Estimated from VIIRS (no MODIS)'));
+      if (xb - xa > 90) svg.append(el('text', { x: xa + 6, y: m.t + 13, fill: P.text2, 'font-size': 11 }, xb - xa > 260 ? 'Before VIIRS: model prediction from MODIS only' : 'Model prediction only'));
       i = j + 1; }
   }
   const yrs = t1 - t0, every = yrs > 16 ? 4 : yrs > 8 ? 2 : 1;
@@ -281,7 +278,7 @@ function monthlyChart(a, W, P, interactive) {
       dl += (run.length ? 'L' : 'M') + px + ' ' + cy(s.pred); run.push([px, b[0], b[1]]); });
     flush();
     if (bd) svg.append(el('path', { d: bd, fill: P.text, 'fill-opacity': .08 }));
-    svg.append(el('path', { d: dl, fill: 'none', stroke: P.text2, 'stroke-width': 1.5, 'stroke-dasharray': '4 3', 'stroke-linejoin': 'round' }));
+    var predPath = el('path', { d: dl, fill: 'none', stroke: P.text, 'stroke-width': 1.75, 'stroke-dasharray': '5 3', 'stroke-linejoin': 'round' });
   }
   for (const l of L) {
     const c = colorOf(P, l.color); let d = '', area = '', run = [];
@@ -292,6 +289,7 @@ function monthlyChart(a, W, P, interactive) {
     svg.append(el('path', { d, fill: 'none', stroke: c, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
     if (S.length <= 36) S.forEach(s => { const v = pick(s, l.key); if (v != null) svg.append(el('circle', { cx: x(s.t), cy: y(v, top), r: 3, fill: c, stroke: P.bg, 'stroke-width': 1.5 })); });
   }
+  if (PR) svg.append(predPath);   // on top of the observed line, so it shows where they agree
   // label the three largest recorded fires at their busiest month
   const used = new Set(), notes = [];
   for (const f of a.fires) {
@@ -320,11 +318,12 @@ function hoverLine(svg, a, L, x, y, top, m, Hh, W) {
     g.innerHTML = ''; g.append(el('line', { x1: x(s.t), x2: x(s.t), y1: m.t, y2: Hh - m.b, stroke: css('--text-3'), 'stroke-width': 1 }));
     L.forEach(l => { const v = pick(s, l.key); if (v != null) g.append(el('circle', { cx: x(s.t), cy: y(v, top), r: 4.5, fill: css(cssOf(l.color)), stroke: css('--surface'), 'stroke-width': 2 })); });
     const rows = L.map(l => { const v = pick(s, l.key);
-      return `<i class="sw" style="background:var(${cssOf(l.color)})"></i>${l.key === 'comb' ? 'Fire activity' : SENS[l.key]} ${v == null ? '<span class="m">no sampled days</span>' : fmt(v) + ' / day'}`; });
+      return `<i class="sw" style="background:var(${cssOf(l.color)})"></i>${l.key === 'viirs' ? 'True VIIRS' : SENS[l.key]} ${v == null ? `<span class="m">${l.key === 'viirs' && s.m < 144 ? 'not launched yet' : 'no sampled days'}</span>` : fmt(v) + ' / day'}`; });
     const PRd = predOf(a), bb = band(PRd, s.pred);
-    if (PRd && s.pred != null) rows.push(`<i class="sw dash"></i>Model ${fmt(s.pred)} / day` + (bb ? ` <span class="m">90%: ${fmt(bb[0])}–${fmt(bb[1])}</span>` : ''));
+    if (PRd && s.pred != null) rows.push(`<i class="sw dash"></i><b>Model prediction</b> ${fmt(s.pred)} / day` + (bb ? ` <span class="m">90%: ${fmt(bb[0])}–${fmt(bb[1])}</span>` : ''));
+    if (a.harm && s.modis != null) rows.push(`<span class="m">Model input: MODIS saw ${fmt(s.modis)} / day</span>`);
     const fs = s.fires.slice(0, 2).map(f => `${esc(f.name)} <span class="m">${acresS(f.acres)} ac</span>`);
-    tip.innerHTML = `<b>${monLabel(s.m)}${s.est ? ' <span class="m">· estimated from MODIS</span>' : ''}</b>${rows.join('<br>')}${fs.length ? '<br><span class="m">Burning:</span> ' + fs.join(', ') : ''}`;
+    tip.innerHTML = `<b>${monLabel(s.m)}${s.est ? ' <span class="m">· before VIIRS: prediction only</span>' : ''}</b>${rows.join('<br>')}${fs.length ? '<br><span class="m">Burning:</span> ' + fs.join(', ') : ''}`;
     tip.style.display = 'block'; const sx = x(s.t) * r.width / W;
     tip.style.left = (sx + 14 + tip.offsetWidth > r.width ? sx - tip.offsetWidth - 14 : sx + 14) + 'px'; tip.style.top = '30px';
   });
@@ -332,7 +331,7 @@ function hoverLine(svg, a, L, x, y, top, m, Hh, W) {
 }
 const barPath = (x, base, w, h, r) => h <= 0 ? '' : `M${x},${base}V${base - h + r}Q${x},${base - h} ${x + r},${base - h}H${x + w - r}Q${x + w},${base - h} ${x + w},${base - h + r}V${base}Z`;
 function seasonChart(a, W, P, interactive) {
-  const Hh = 240, m = { l: 44, r: 8, t: 10, b: 26 }, L = lines(a), rows = a.season;
+  const Hh = 240, m = { l: 44, r: 8, t: 10, b: 26 }, L = slines(a), rows = a.season;
   const svg = svgBase(W, Hh, 'Fire season: activity per sampled day by calendar month');
   const y = (v, top) => Hh - m.b - v / top * (Hh - m.t - m.b);
   const top = axisY(svg, P, m, W, Math.max(0, ...rows.flatMap(r => L.map(l => pick(r, l.key) ?? 0))), y);
@@ -370,6 +369,101 @@ function mapSVG(a, W, P) {   // static map for the report (no basemap)
   tick(st.w, st.e).forEach(v => svg.append(el('text', { x: x(v), y: Hh - 8, 'text-anchor': 'middle', fill: P.text3, 'font-size': 11 }, lonS(v).replace('.00', ''))));
   tick(st.s, st.n).forEach(v => svg.append(el('text', { x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end', fill: P.text3, 'font-size': 11 }, latS(v).replace('.00', ''))));
   return svg;
+}
+
+// ---------------------------------------------------------------- harmonization section
+function harmStats(a) {   // months both satellites sampled: how the model prediction (from MODIS) compares with true VIIRS
+  const hr = a.hr; if (!hr.length) return null;
+  const sum = k => hr.reduce((t, r) => t + r[k], 0), mo = sum('modis'), tv = sum('merged'), q = (META.harmonization || {}).interval90_log;
+  const err = hr.reduce((t, r) => t + Math.abs(Math.log1p(r.pred) - Math.log1p(r.merged)), 0) / hr.length;
+  let wp = 0, wo = 0, wd = 0; for (const r of hr) { wp += r.pred * r.d; wo += r.merged * r.d; wd += r.d; }
+  return { n: hr.length, from: monLabel(hr[0].m), to: monLabel(hr[hr.length - 1].m), raw: mo ? sum('raw') / mo : null, merged: mo ? tv / mo : null,
+    pred: tv ? sum('pred') / tv : null, err: Math.exp(err), predAvg: wd ? wp / wd : null, obsAvg: wd ? wo / wd : null,
+    inside: q ? hr.filter(r => inBand(r, q)).length / hr.length : null,
+    heldOut: META.harmonization && META.harmonization.typical_error, region: st.w > META.bbox[0] + .01 || st.s > META.bbox[1] + .01 || st.e < META.bbox[2] - .01 || st.n < META.bbox[3] - .01 };
+}
+const inBand = (r, q) => r.merged >= r.pred * Math.exp(q[0]) && r.merged <= r.pred * Math.exp(q[1]);
+// step 1 and 2: MODIS (blue) vs a VIIRS stage (orange); step 3: true VIIRS (orange) vs the model prediction (dashed)
+const STEPKEY = { raw: ['VIIRS, raw pixels', 'modis'], merged: ['VIIRS, consolidated', 'modis'], pred: ['Model prediction', 'merged'] };
+function stepChart(hr, key, W, P, max) {   // same y-scale in all three panels
+  const Hh = 160, m = { l: 40, r: 6, t: 8, b: 20 }, base = STEPKEY[key][1], svg = svgBase(W, Hh, `${base === 'modis' ? 'MODIS' : 'True VIIRS'} vs ${STEPKEY[key][0]}`);
+  if (!hr.length) { svg.append(el('text', { x: W / 2, y: Hh / 2, 'text-anchor': 'middle', fill: P.text3, 'font-size': 12 }, 'No months with both satellites')); return svg; }
+  const t0 = hr[0].t - 1 / 24, t1 = hr[hr.length - 1].t + 1 / 24;
+  const x = t => m.l + (t - t0) / Math.max(t1 - t0, 1e-9) * (W - m.l - m.r), y = (v, top) => Hh - m.b - v / top * (Hh - m.t - m.b);
+  const top = axisY(svg, P, m, W, max, y), yrs = t1 - t0, every = yrs > 10 ? 4 : yrs > 5 ? 2 : 1;
+  if (yrs > 2) for (let yr = Math.ceil(t0); yr <= t1; yr += every) svg.append(el('text', { x: x(yr), y: Hh - 5, 'text-anchor': 'middle', fill: P.text3, 'font-size': 10.5 }, yr));
+  const path = k => { let d = ''; hr.forEach((r, i) => { d += (i && r.m - hr[i - 1].m === 1 ? 'L' : 'M') + x(r.t).toFixed(1) + ' ' + y(Math.min(r[k], top), top).toFixed(1); }); return d; };
+  svg.append(el('path', { d: path(base), fill: 'none', stroke: base === 'modis' ? P.s[0] : P.s[1], 'stroke-width': 1.75, 'stroke-linejoin': 'round' }));
+  svg.append(el('path', { d: path(key), fill: 'none', stroke: key === 'pred' ? P.text : P.s[1], 'stroke-width': 1.75, 'stroke-linejoin': 'round', ...(key === 'pred' ? { 'stroke-dasharray': '5 3' } : {}) }));
+  return svg;
+}
+function scatterChart(hr, W, P, interactive) {
+  const Hh = 300, m = { l: 50, r: 12, t: 10, b: 38 }, svg = svgBase(W, Hh, 'Model prediction vs true VIIRS, one dot per month');
+  if (!hr.length) { svg.append(el('text', { x: W / 2, y: Hh / 2, 'text-anchor': 'middle', fill: P.text3, 'font-size': 12 }, 'No months with both satellites')); return svg; }
+  const f = v => Math.log10(1 + Math.max(0, v)), vmax = Math.max(...hr.flatMap(r => [r.merged, r.pred])), D = f(vmax) * 1.05 || 1;
+  const x = v => m.l + f(v) / D * (W - m.l - m.r), y = v => Hh - m.b - f(v) / D * (Hh - m.t - m.b);
+  const ticks = [0, 1, 3, 10, 30, 100, 300, 1000, 3000].filter(v => f(v) <= D);
+  for (const v of ticks) {
+    svg.append(el('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: P.grid }));
+    svg.append(el('text', { x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end', fill: P.text3, 'font-size': 10.5 }, v.toLocaleString()));
+    svg.append(el('text', { x: x(v), y: Hh - m.b + 15, 'text-anchor': 'middle', fill: P.text3, 'font-size': 10.5 }, v.toLocaleString()));
+  }
+  svg.append(el('text', { x: (m.l + W - m.r) / 2, y: Hh - 4, 'text-anchor': 'middle', fill: P.text2, 'font-size': 11.5 }, 'True VIIRS, consolidated (hotspots / day, log scale)'));
+  svg.append(el('text', { x: 12, y: (m.t + Hh - m.b) / 2, 'text-anchor': 'middle', fill: P.text2, 'font-size': 11.5, transform: `rotate(-90 12 ${(m.t + Hh - m.b) / 2})` }, 'Model prediction from MODIS'));
+  const q = (META.harmonization || {}).interval90_log, xs = Array.from({ length: 60 }, (_, i) => 10 ** (D * i / 59) - 1), top = 10 ** D - 1;
+  const clipY = v => y(Math.min(v, top));
+  if (q) svg.append(el('path', { d: 'M' + xs.map(v => `${x(v).toFixed(1)} ${clipY(v * Math.exp(-q[0])).toFixed(1)}`).join('L') + 'L' + xs.slice().reverse().map(v => `${x(v).toFixed(1)} ${clipY(v * Math.exp(-q[1])).toFixed(1)}`).join('L') + 'Z', fill: P.text, 'fill-opacity': .07 }));
+  svg.append(el('line', { x1: x(0), y1: y(0), x2: x(top), y2: y(top), stroke: P.text3, 'stroke-width': 1, 'stroke-dasharray': '3 3' }));
+  svg.append(el('text', { x: x(top * .55), y: y(top * .55) - 8, 'text-anchor': 'end', fill: P.text3, 'font-size': 10.5, stroke: P.bg, 'stroke-width': 3, 'paint-order': 'stroke' }, 'perfect match'));
+  const out = r => q && !inBand(r, q);
+  for (const r of hr) svg.append(el('circle', { cx: x(r.merged), cy: y(r.pred), r: 3.5, fill: out(r) ? P.heat : P.text2, 'fill-opacity': out(r) ? .85 : .45, stroke: P.bg, 'stroke-width': .75 }));
+  if (interactive) {
+    const tip = $('scatter').querySelector('.tip'), ring = el('circle', { r: 6, fill: 'none', stroke: P.text, 'stroke-width': 1.5, visibility: 'hidden' }); svg.append(ring);
+    const hit = el('rect', { x: m.l, y: m.t, width: W - m.l - m.r, height: Hh - m.t - m.b, fill: 'transparent' }); svg.append(hit);
+    hit.addEventListener('mousemove', ev => {
+      const b = svg.getBoundingClientRect(), px = (ev.clientX - b.left) * W / b.width, py = (ev.clientY - b.top) * Hh / b.height;
+      const d = c => Math.hypot(x(c.merged) - px, y(c.pred) - py), r = hr.reduce((best, c) => d(c) < d(best) ? c : best);
+      if (d(r) > 16) { tip.style.display = 'none'; ring.setAttribute('visibility', 'hidden'); return; }
+      ring.setAttribute('cx', x(r.merged)); ring.setAttribute('cy', y(r.pred)); ring.setAttribute('visibility', 'visible');
+      tip.innerHTML = `<b>${monLabel(r.m)}</b>True VIIRS ${fmt(r.merged)} / day<br><i class="sw dash"></i>Model prediction ${fmt(r.pred)} / day<br><span class="m">from MODIS ${fmt(r.modis)} / day${r.merged > 0 ? ' · ' + (r.pred / r.merged).toFixed(2) + '× true VIIRS' : ''}${out(r) ? ' · outside the 90% range' : ''}</span>`;
+      tip.style.display = 'block'; const sx = x(r.merged) * b.width / W;
+      tip.style.left = (sx + 14 + tip.offsetWidth > b.width ? sx - tip.offsetWidth - 14 : sx + 14) + 'px'; tip.style.top = Math.max(0, y(r.pred) * b.height / Hh - 30) + 'px';
+    });
+    hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; ring.setAttribute('visibility', 'hidden'); });
+  }
+  return svg;
+}
+const NO_OVERLAP = 'VIIRS only starts in 2012, so for these dates all fire activity is the model prediction from MODIS. Pick dates from 2012 onward to see how the prediction compares with true VIIRS.';
+function harmTable(S) {
+  if (!S) return `<tbody><tr><td class="empty">${NO_OVERLAP}</td></tr></tbody>`;
+  const x = v => v == null ? '–' : v.toFixed(2) + '×';
+  return `<thead><tr><th></th><th>This selection</th></tr></thead><tbody>
+<tr><th>Raw VIIRS pixels ÷ MODIS</th><td>${x(S.raw)}</td></tr>
+<tr><th>Consolidated VIIRS ÷ MODIS</th><td>${x(S.merged)}</td></tr>
+<tr class="hl"><th>Model prediction ÷ true VIIRS <span style="font-weight:400;color:var(--text-3)">(1× = perfect)</span></th><td>${x(S.pred)}</td></tr>
+<tr><th>Model prediction, average</th><td>${fmt(S.predAvg)} / day</td></tr>
+<tr><th>True VIIRS, same months</th><td>${fmt(S.obsAvg)} / day</td></tr>
+<tr class="hl"><th>Typical miss in one month</th><td>×/÷ ${S.err.toFixed(2)}</td></tr>
+${S.inside == null ? '' : `<tr><th>Months inside the 90% range</th><td>${Math.round(S.inside * 100)}%</td></tr>`}
+${S.heldOut ? `<tr><th>Held-out test, whole state (years the model never saw)</th><td>×/÷ ${S.heldOut.toFixed(2)}</td></tr>` : ''}</tbody>`;
+}
+function renderHarm(a, P) {
+  const card = $('harmcard'); card.hidden = !a.harm; if (!a.harm) return;
+  const S = harmStats(a), hr = a.hr;
+  card.querySelectorAll('.steps, .two').forEach(e => { e.style.display = S ? '' : 'none'; });
+  const sw = (c, dash) => `<i class="sw${dash ? ' dash' : ''}"${c ? ` style="background:var(${c})"` : ''}></i>`;
+  $('harmintro').innerHTML = S ? `For this selection: the ${S.n} months from ${S.from} to ${S.to} that both satellites sampled, in hotspots per sampled day. ` +
+    `<span style="white-space:nowrap">${sw('--modis')}MODIS</span> &nbsp;<span style="white-space:nowrap">${sw('--viirs')}VIIRS</span> &nbsp;<span style="white-space:nowrap">${sw(null, true)}Model prediction (from MODIS)</span>. All three charts use the same scale.` : NO_OVERLAP;
+  const max = Math.max(1e-9, ...hr.flatMap(r => [r.modis, r.raw]));
+  [['st1', 'raw', 'r1', S && S.raw, 'VIIRS ÷ MODIS'], ['st2', 'merged', 'r2', S && S.merged, 'VIIRS ÷ MODIS'], ['st3', 'pred', 'r3', S && S.pred, 'prediction ÷ true VIIRS']].forEach(([id, k, rid, v, u]) => {
+    $(rid).innerHTML = v == null ? '–' : `${v.toFixed(2)}× <small>${u}</small>`;
+    $(id).innerHTML = ''; $(id).append(stepChart(hr, k, chartW(id), P, max));
+  });
+  $('scatter').innerHTML = '<div class="tip"></div>'; $('scatter').prepend(scatterChart(hr, chartW('scatter'), P, true));
+  $('harmtbl').innerHTML = harmTable(S);
+  $('scnote').textContent = 'Each dot is one month from 2012 on. On the dashed diagonal, the model (given only MODIS) predicted exactly what VIIRS saw. Grey is the model\'s 90% range; red dots fall outside it.';
+  $('harmnote').textContent = S ? `×/÷ ${S.err.toFixed(2)} means the prediction is typically off by a factor of about ${S.err.toFixed(1)}, up or down. The model was trained on the whole state's monthly totals from 2012 on, so most of these months were in its training data; the held-out figure is the honest test, and it is what to expect for 2000–2011.` +
+    (S.region ? ' In an area smaller than the whole state, expect a bigger miss: the model assumes it behaves like the state as a whole.' : '') : '';
 }
 
 // ---------------------------------------------------------------- map
@@ -413,22 +507,26 @@ function drawMap(a) {
 }
 
 // ---------------------------------------------------------------- render
-const tile = (k, v, n) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
+const tile = (k, v, n, cls = '') => `<div class="tile ${cls}"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`;
 function tilesHTML(a) {
-  const on = a.per.filter(p => p.on); if (!on.length) return tile('No sensor selected', '–', 'Turn one on under More options');
-  const out = [];
-  if (a.harm && a.overall != null) {
-    const r = a.longTerm ? a.overall / a.longTerm : null;
-    out.push(tile('Fire activity', `${fmt(a.overall)} <small>${perDay(a)}</small>`,
-      (r == null ? 'MODIS units, per sampled day' : `${r >= 1.05 ? r.toFixed(1) + '× the' : r > .95 ? 'about the' : Math.round(r * 100) + '% of the'} long-term average here`) +
-      (a.estMonths ? ` · ${a.estMonths === a.series.length ? 'all' : 'partly'} estimated` : '')));
-  } else out.push(tile('Fire activity', on.map(p => fmt(p.rate)).join(' · ') + ' <small>/ day</small>', on.map(p => p.name).join(' · ') + (a.harm ? '' : ', raw detections')));
+  const on = a.per.filter(p => p.on), out = [], S = a.harm ? harmStats(a) : null;
+  if (a.harm) {
+    const r = a.longTerm && a.overall != null ? a.overall / a.longTerm : null;
+    const nm = a.series.filter(s => s.comb != null).length;
+    out.push(tile('Fire activity (VIIRS units)', a.overall == null ? '–' : `${fmt(a.overall)} <small>hotspots / day</small>`,
+      (r == null ? 'per sampled day' : `${r >= 1.05 ? r.toFixed(1) + '× the' : r > .95 ? 'about the' : Math.round(r * 100) + '% of the'} long-term average here`) +
+      (a.estMonths ? (a.estMonths === nm ? ' · all model prediction (before VIIRS)' : ` · ${a.estMonths} of ${nm} months are model prediction`) : ' · all true VIIRS')));
+    let pp = 0, pd = 0; for (const s of a.series) if (s.est && s.pred != null) { pp += s.pred * s.days[0]; pd += s.days[0]; }
+    out.push(S ? tile('Model prediction (from MODIS)', `${fmt(S.predAvg)} <small>hotspots / day</small>`,
+        `vs ${fmt(S.obsAvg)} true VIIRS in the same ${S.n} months · typical miss ×/÷ ${S.err.toFixed(2)}` + (pd ? ` · ${fmt(pp / pd)} / day back-cast before 2012` : ''), 'model') :
+      tile('Model prediction (from MODIS)', pd ? `${fmt(pp / pd)} <small>hotspots / day</small>` : '–',
+        pd ? 'What VIIRS would probably have seen; VIIRS starts in 2012, so this is the only record here' : 'No MODIS data in this selection', 'model'));
+  } else out.push(tile('Detections', on.map(p => fmt(p.rate)).join(' · ') + ' <small>/ day</small>', on.map(p => p.name).join(' · ') + ', unconverted'));
   const pk = peakOf(a);
-  out.push(tile('Peak month', pk ? monLabel(pk.m) : '–', pk ? `${fmt(shown(a, pk))} / day` + (pk.est && st.view === 'one' ? ' (estimated)' : '') + (pk.fires[0] ? ` · ${esc(fireName(pk.fires[0].name))}` : '') : 'no sampled days'));
+  out.push(tile('Peak month', pk ? monLabel(pk.m) : '–', pk ? `${fmt(shown(a, pk))} / day ${a.harm ? (pk.est ? '(model prediction)' : '(true VIIRS)') : 'observed'}` + (pk.fires[0] ? ` · ${esc(fireName(pk.fires[0].name))}` : '') : 'no sampled days'));
   const f = a.fires[0];
   out.push(f ? tile('Largest recorded fire', `${esc(f.name)} <small>${f.acres.toLocaleString()} acres</small>`, `${f.start.slice(0, 7)} · ${esc(causeS(f.cause))} · ${wikiLink(f)}`) :
     tile('Largest recorded fire', '–', st.from > toDay('2020-12-31') ? 'Fire records run to 2020' : 'None matched in this selection'));
-  out.push(tile('Hotspots', on.reduce((s, p) => s + p.hotspots, 0).toLocaleString(), `in ${Math.max(...on.map(p => p.days))} sampled days`));
   return out.join('');
 }
 function firesHTML(a, max = 8) {
@@ -443,21 +541,23 @@ function render() {
   for (const id of ['monthly', 'season']) $(id).innerHTML = '<div class="tip"></div>';
   $('monthly').prepend(monthlyChart(a, chartW('monthly'), P, true));
   $('season').prepend(seasonChart(a, chartW('season'), P, true));
-  const PR = predOf(a);
+  const PR = a.series.some(x => x.pred != null) ? predOf(a) : null;
   $('leg1').innerHTML = lines(a).map(l => `<span><i class="sw" style="background:var(${cssOf(l.color)})"></i>${l.name}</span>`).join('') +
-    (PR ? `<span><i class="sw dash"></i>${PR.name}${PR.q ? ', 90% range' : ''}</span>` : '');
-  $('chnote').textContent = st.view === 'one' && a.mode === 'harm' ? 'Hotspots per sampled day in MODIS units: observed MODIS (a month without MODIS would be filled from VIIRS and shaded). Labels mark the largest recorded fires.' :
-    `Each sensor separately${a.mode === 'harm' ? ', VIIRS converted to MODIS units' : ', unconverted'}.` +
-    (a.agree && st.sens[0] && st.sens[1] ? ` Over months both were sampled, VIIRS ÷ MODIS = ${a.agree.toFixed(2)}×${a.harm ? ' (1× = the two agree)' : ''}.` : '');
-  if (PR) $('chnote').textContent +=
-    ' Dashed: the calibration model\'s MODIS prediction from VIIRS (fitted on 2012+, so this shows fit; held-out error ×/÷ ' + META.harmonization.typical_error + ').';
+    (PR ? `<span><i class="sw dash"></i><b>${PR.name}</b></span>` + (PR.q ? '<span><i class="sw bandsw"></i>90% range of the prediction</span>' : '') : '');
+  $('chnote').textContent = !PR && a.harm ? 'True VIIRS, hotspots per sampled day. There is no MODIS here to predict from. Labels mark the largest recorded fires.' : PR ? 'Solid red: true VIIRS from 2012, consolidated (one fire per 1 km cell per satellite pass), in hotspots per sampled day. ' +
+    'Dashed: the model prediction of the same thing, made only from MODIS, back to 2000; grey is its 90% range. ' +
+    (a.estMonths ? 'Shaded months are before VIIRS, so the prediction is the only record there. ' : '') +
+    'Where solid and dashed overlap, the model got it right. Labels mark the largest recorded fires.' :
+    'Each sensor separately, unconverted (this file has no viirs_equiv column).';
+  renderHarm(a, P);
 }
 function update() {
   if (!H) return;
   A = analyse(); writeHash();
   $('tiles').innerHTML = tilesHTML(A);
   render(); drawMap(A);
-  $('mapnote').textContent = 'Darker = more fire per sampled day. Rings = recorded fires; click one for details.';
+  const on = A.per.filter(p => p.on);
+  $('mapnote').textContent = `${on.reduce((s, p) => s + p.hotspots, 0).toLocaleString()} hotspots in ${Math.max(0, ...on.map(p => p.days))} sampled days. Darker = more fire per sampled day. Rings = recorded fires; click one for details.`;
   $('fires').innerHTML = firesHTML(A);
   $('firecount').textContent = A.fires.length ? `${A.fires.length} fire${A.fires.length > 1 ? 's' : ''} of 100+ acres` : '';
   $('firenote').textContent = A.fires.length > 8 ? `The 8 largest are shown; the CSV download has all ${A.fires.length}.` :
@@ -481,10 +581,10 @@ function framed(svg, P, title, sub, withPred) {
   out.append(el('text', { x: 12, y: 20, fill: P.text, 'font-size': 14, 'font-weight': 650 }, title));
   out.append(el('text', { x: 12, y: 37, fill: P.text2, 'font-size': 11.5 }, sub));
   const g = el('g', { transform: `translate(0 ${pad})` }); [...svg.childNodes].forEach(n => n.nodeName !== 'title' && g.append(n)); out.append(g);
-  let lx = 12; lines(A).forEach(l => { out.append(el('rect', { x: lx, y: H0 + pad + 6, width: 14, height: 3, rx: 1.5, fill: colorOf(P, l.color) }));
+  let lx = 12; (withPred ? lines(A) : slines(A)).forEach(l => { out.append(el('rect', { x: lx, y: H0 + pad + 6, width: 14, height: 3, rx: 1.5, fill: colorOf(P, l.color) }));
     out.append(el('text', { x: lx + 19, y: H0 + pad + 11, fill: P.text2, 'font-size': 11.5 }, l.name)); lx += 34 + l.name.length * 6.3; });
   const PR = withPred && predOf(A);
-  if (PR) { out.append(el('line', { x1: lx, x2: lx + 14, y1: H0 + pad + 7.5, y2: H0 + pad + 7.5, stroke: P.text2, 'stroke-width': 1.5, 'stroke-dasharray': '4 3' }));
+  if (PR) { out.append(el('line', { x1: lx, x2: lx + 14, y1: H0 + pad + 7.5, y2: H0 + pad + 7.5, stroke: P.text, 'stroke-width': 1.75, 'stroke-dasharray': '5 3' }));
     out.append(el('text', { x: lx + 19, y: H0 + pad + 11, fill: P.text2, 'font-size': 11.5 }, PR.name + (PR.q ? ' (grey: 90% range)' : ''))); }
   return out;
 }
@@ -498,9 +598,9 @@ document.querySelectorAll('.dl').forEach(box => box.addEventListener('click', as
   const c = document.createElement('canvas'); c.width = svg.getAttribute('width') * 2; c.height = svg.getAttribute('height') * 2;
   const g = c.getContext('2d'); g.scale(2, 2); g.drawImage(img, 0, 0); URL.revokeObjectURL(url); c.toBlob(b => save(`${stem()}_${name}.png`, b), 'image/png');
 }));
-const HCOLS = 'date,time,lat,lon,sensor,satellite,daynight,confidence,frp,pixels,modis_equiv';
+const HCOLS = 'date,time,lat,lon,sensor,satellite,daynight,confidence,frp,pixels,viirs_equiv';
 const hotspotRows = () => A.idx.map(i => [dayStr(H.day[i]), String(H.time[i]).padStart(4, '0'), H.lat[i].toFixed(4), H.lon[i].toFixed(4), SENS[H.sensor[i]], H.sat[i],
-  H.night[i] ? 'N' : 'D', ['low', 'nominal', 'high'][H.conf[i]], H.frp[i].toFixed(1), H.pix[i], H.sensor[i] ? +H.weq[i].toFixed(4) : 1]);
+  H.night[i] ? 'N' : 'D', ['low', 'nominal', 'high'][H.conf[i]], H.frp[i].toFixed(1), H.pix[i], H.sensor[i] ? 1 : +H.weq[i].toFixed(4)]);
 const csvCell = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v;
 function summaryJSON() {
   const pk = peakOf(A);
@@ -511,8 +611,9 @@ function summaryJSON() {
     fire_activity_per_sampled_day: A.overall, long_term_average_here: A.longTerm, peak_month: pk && monKey(pk.m), viirs_over_modis_same_months: A.agree,
     sensors: A.per.filter(p => p.on).map(p => ({ sensor: p.name, hotspots: p.hotspots, count: +p.count.toFixed(2), sampled_days: p.days, per_sampled_day: p.rate,
       frp_median_mw: p.frpMedian, night_share: p.count ? +(p.night / p.count).toFixed(3) : null })),
-    monthly: A.series.map(s => ({ month: monKey(s.m), fire_activity: s.comb, estimated: s.est, model_prediction: s.pred, model_90: band({ q: (META.harmonization || {}).interval90_log }, s.pred), modis: s.rate[0], viirs: s.rate[1], modis_days: s.days[0], viirs_days: s.days[1], fires_burning: s.fires.map(f => f.name) })),
-    season: A.season.map(s => ({ month: s.name, fire_activity: s.comb, modis: s.rate[0], viirs: s.rate[1] })),
+    monthly: A.series.map(s => ({ month: monKey(s.m), fire_activity: s.comb, estimated: s.est, model_prediction: s.pred, model_90: band({ q: (META.harmonization || {}).interval90_log }, s.pred), true_viirs: s.viirs, modis_observed: s.modis, modis_days: s.days[0], viirs_days: s.days[1], fires_burning: s.fires.map(f => f.name) })),
+    season: A.season.map(s => ({ month: s.name, fire_activity: s.comb, model_prediction: s.rate[0], true_viirs: s.rate[1] })),
+    harmonization_check: harmStats(A), harmonization_months: A.hr,
     recorded_fires: A.fires.map(({ name, start, end, acres, cause, state, lat, lon, wiki_url }) => ({ name, start, end, acres, cause, state, lat, lon, wiki_url })),
   };
 }
@@ -529,13 +630,14 @@ th,td{padding:5px 8px;text-align:right;border-bottom:1px solid #e9e7e2}th:first-
 <p>${boxS()} · ${dayStr(st.from)} to ${dayStr(st.to)} · ${A.unit}${st.sens[0] && st.sens[1] ? '' : ' · ' + SENS.filter((_, j) => st.sens[j]).join('') + ' only'}</p>
 <p class="k">Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC. Reopen this view: <a href="${esc(location.href)}">${esc(location.href)}</a></p>
 <div class="tiles">${tilesHTML(A)}</div>
-<h2>Fire activity over time</h2>${sv('monthly')}
+<h2>Fire activity over time: true VIIRS vs model prediction</h2>${sv('monthly')}
 <h2>Fire season</h2>${sv('season')}
 <h2>Where</h2>${mapSVG(A, W, P).outerHTML}<p class="k">Darker cells = more fire per sampled day; rings = the largest recorded fires. No basemap.</p>
 <h2>Recorded fires</h2><table>${firesHTML(A, 25)}</table>${A.fires.length > 25 ? `<p class="k">25 largest of ${A.fires.length}.</p>` : ''}
+${A.harm ? `<h2>How the data was harmonized</h2><table>${harmTable(harmStats(A)).replace(/ style="[^"]*"/g, '')}</table>${scatterChart(A.hr, W, P, false).outerHTML}<p class="k">Each dot is one month from 2012 on: true VIIRS (across) vs the model prediction from MODIS (up). Diagonal = perfect match; grey = 90% range; red = outside it.</p>` : ''}
 <h2>Method</h2><ul>
 <li>NASA FIRMS active-fire detections${META.sampling ? `, sampled ${esc(META.sampling)}; counts cover sampled days only and rates are per sampled day` : ''}.</li>
-${hm ? `<li>Harmonized to MODIS units: VIIRS pixels merged to ${hm.merge_km} km per overpass, then calibrated (${esc(hm.model)}, typical monthly error ×/÷ ${hm.typical_error}); the fire-activity line is observed MODIS, with harmonized VIIRS filling months without MODIS. ${esc(hm.note)}</li>` : ''}
+${hm ? `<li>Harmonized to VIIRS: VIIRS pixels consolidated to ${hm.merge_km} km per overpass (true VIIRS, 2012 on). A model trained on ${esc(hm.trained)} predicts consolidated VIIRS from MODIS (${esc(hm.model)}, typical monthly error ×/÷ ${hm.typical_error} on held-out years) and fills 2000–2011, before VIIRS existed. ${esc(hm.note)}</li>` : ''}
 ${FIRESRC ? `<li>Recorded fires: ${esc(FIRESRC.source)}; ${esc(FIRESRC.location)}.</li>` : ''}
 <li>Long-term average for this area: ${fmt(sj.long_term_average_here)} hotspots per sampled day over the whole record.</li></ul>
 </main></body></html>`;
@@ -545,10 +647,10 @@ document.querySelector('.downloads').addEventListener('click', ev => {
   const k = b.dataset.dl, s = stem();
   if (k === 'csv') save(s + '_hotspots.csv', HCOLS + '\n' + hotspotRows().map(r => r.join(',')).join('\n') + '\n', 'text/csv');
   else if (k === 'geojson') save(s + '_hotspots.geojson', JSON.stringify({ type: 'FeatureCollection', features: hotspotRows().map(r => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [+r[3], +r[2]] },
-    properties: { date: r[0], time: r[1], sensor: r[4], satellite: r[5], daynight: r[6], confidence: r[7], frp: +r[8], pixels: r[9], modis_equiv: r[10] } })) }), 'application/geo+json');
-  else if (k === 'monthly') save(s + '_monthly.csv', 'month,fire_activity_per_day,estimated,model_prediction_per_day,model_lo90,model_hi90,modis_per_day,viirs_per_day,modis_sampled_days,viirs_sampled_days,units,fires_burning\n' +
+    properties: { date: r[0], time: r[1], sensor: r[4], satellite: r[5], daynight: r[6], confidence: r[7], frp: +r[8], pixels: r[9], viirs_equiv: r[10] } })) }), 'application/geo+json');
+  else if (k === 'monthly') save(s + '_monthly.csv', 'month,fire_activity_per_day,before_viirs,model_prediction_per_day,model_lo90,model_hi90,true_viirs_per_day,modis_observed_per_day,modis_sampled_days,viirs_sampled_days,units,fires_burning\n' +
     A.series.map(m => { const b = band({ q: (META.harmonization || {}).interval90_log }, m.pred) || ['', ''];
-      return [monKey(m.m), m.comb ?? '', m.est ? 1 : 0, m.pred ?? '', b[0], b[1], m.rate[0] ?? '', m.rate[1] ?? '', m.days[0], m.days[1], { harm: 'modis_equiv', raw: 'raw' }[A.mode], csvCell(m.fires.map(f => f.name).join('; '))].join(','); }).join('\n') + '\n', 'text/csv');
+      return [monKey(m.m), m.comb ?? '', m.est ? 1 : 0, m.pred ?? '', b[0], b[1], m.viirs ?? '', m.modis ?? '', m.days[0], m.days[1], { harm: 'consolidated_viirs', raw: 'raw' }[A.mode], csvCell(m.fires.map(f => f.name).join('; '))].join(','); }).join('\n') + '\n', 'text/csv');
   else if (k === 'fires') save(s + '_recorded_fires.csv', 'name,start,end,acres,cause,state,lat,lon,wikipedia\n' +
     A.fires.map(f => [f.name, f.start, f.end, f.acres, f.cause, f.state, f.lat, f.lon, f.wiki_url || ''].map(csvCell).join(',')).join('\n') + '\n', 'text/csv');
   else if (k === 'json') save(s + '_analytics.json', JSON.stringify(summaryJSON(), null, 1), 'application/json');

@@ -25,14 +25,14 @@
 body { margin: 0; background: var(--page); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 1240px; margin: 0 auto; padding: 22px 16px 40px; }
 h1 { font-size: 22px; margin: 0 0 2px; }
-h2 { font-size: 15px; margin: 0; }
+h2 { font-size: 16px; margin: 0; }
+h3 { font-size: 13.5px; margin: 0 0 6px; }
 a { color: inherit; }
 .sub { color: var(--text-2); margin: 0 0 14px; max-width: 80ch; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
-.row { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
-.row + .row { margin-top: 10px; }
+.row { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; }
 .grow { flex: 1; }
-.lbl { color: var(--text-2); font-size: 12.5px; font-weight: 600; min-width: 52px; }
+.lbl { color: var(--text-2); font-size: 12.5px; font-weight: 600; }
 input, select, button { font: inherit; color: var(--text); }
 input[type=number], input[type=date], select { background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; }
 input[type=number] { width: 88px; font-variant-numeric: tabular-nums; }
@@ -40,30 +40,26 @@ input[type=number] { width: 88px; font-variant-numeric: tabular-nums; }
 .btn:hover { background: var(--band); }
 .btn[aria-pressed=true] { background: var(--text); color: var(--surface); border-color: var(--text); }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
-.seg button { border: 0; background: transparent; color: var(--text-2); padding: 4px 10px; cursor: pointer; font-size: 13px; }
-.seg button[aria-pressed=true] { background: var(--band); color: var(--text); font-weight: 600; }
-.seg button:disabled { opacity: .4; cursor: default; }
-.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
-.sw.dash { height: 2px; background: repeating-linear-gradient(90deg, var(--text-2) 0 4px, transparent 4px 7px); }
+.sw.dash { height: 2px; background: repeating-linear-gradient(90deg, var(--text) 0 5px, transparent 5px 8px); }
+.sw.bandsw { height: 10px; width: 14px; background: var(--band); border-radius: 2px; }
 .note { color: var(--text-3); font-size: 12.5px; margin: 8px 0 0; }
-details.more { margin-top: 10px; }
-details.more > summary { cursor: pointer; color: var(--text-2); font-size: 13px; width: max-content; }
-details.more[open] > summary { margin-bottom: 10px; }
+details.more > summary { cursor: pointer; color: var(--text-2); font-size: 13px; }
+details.more[open] > .row { margin-top: 10px; }
 details.how { color: var(--text-2); font-size: 13px; margin: -6px 0 14px; max-width: 90ch; }
 details.how > summary { cursor: pointer; color: var(--text-3); }
 details.how p { margin: 6px 0 0; }
-.layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 14px; }
-@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
-#map { height: 440px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); }
+.bar { margin-bottom: 10px; }
+#map { height: 500px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); }
 #map.drawing { cursor: crosshair; }
 .base { filter: opacity(.85); }
 @media (prefers-color-scheme: dark) { .base { filter: grayscale(1) invert(1) brightness(.8) opacity(.6); } }
-.tiles { display: grid; gap: 10px; }
-.tile { border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 11px 13px; }
+.tile.model { border-color: var(--text-3); border-style: dashed; }
 .tile .k { color: var(--text-2); font-size: 12.5px; }
-.tile .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; margin: 1px 0; line-height: 1.2; }
+.tile .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; margin: 1px 0; line-height: 1.25; }
 .tile .v small { font-size: 13px; font-weight: 500; color: var(--text-2); }
 .tile .n { color: var(--text-3); font-size: 12.5px; }
 .legend { display: flex; gap: 14px; color: var(--text-2); font-size: 13px; flex-wrap: wrap; }
@@ -84,7 +80,15 @@ table.t th:first-child, table.t td:first-child { text-align: left; }
 table.t thead th { color: var(--text-2); font-weight: 600; border-bottom: 1px solid var(--border); white-space: nowrap; }
 table.t td.l, table.t th.l { text-align: left; }
 table.t td.l { color: var(--text-2); }
+table.t tr.hl td, table.t tr.hl th { font-weight: 650; }
 .tablewrap { overflow-x: auto; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 12px 0 16px; }
+@media (max-width: 900px) { .steps { grid-template-columns: 1fr; } }
+.step { border: 1px solid var(--border); border-radius: 9px; padding: 11px 12px; }
+.step .k { color: var(--text-2); font-size: 12.5px; font-weight: 600; }
+.step .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.step .v small { font-size: 12.5px; font-weight: 500; color: var(--text-2); }
+.step p { color: var(--text-2); font-size: 12.5px; margin: 2px 0 6px; }
 .downloads { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .downloads button.main { background: var(--text); color: var(--surface); border-color: var(--text); }
 #loader { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--page) 88%, transparent); z-index: 2000; }
@@ -99,51 +103,41 @@ table.t td.l { color: var(--text-2); }
   <div class="row" style="align-items:flex-start">
     <div class="grow">
       <h1>Fire Activity Explorer — <span id="region">loading…</span></h1>
-      <p class="sub">Choose a region and dates to see how much fire there was, when it peaked, and which recorded fires drove it. MODIS and VIIRS are harmonized into one record from 2000 to today.</p>
+      <p class="sub">Pick an area and dates to see how much fire there was, when it peaked and which recorded fires drove it. VIIRS (since 2012) is the record; for 2000–2011 a model predicts it from MODIS. How the two were harmonized is shown at the bottom.</p>
     </div>
     <label class="btn" style="margin-top:4px">Load hotspot file…<input type="file" id="file" accept=".csv,.gz" hidden></label>
   </div>
-  <details class="how"><summary>How the numbers are made</summary><div id="how"></div></details>
+  <details class="how"><summary>About the data</summary><div id="how"></div></details>
 
-  <section class="card" aria-label="Selection">
-    <div class="row">
-      <span class="lbl">Region</span>
-      <select id="preset" aria-label="Region preset"></select>
+  <section class="card" aria-label="Map and selection">
+    <div class="row bar">
+      <select id="preset" aria-label="Region"></select>
       <button class="btn" id="draw" aria-pressed="false">Draw on map</button>
-      <label>W <input type="number" id="w" step="0.1" aria-label="West longitude"></label>
-      <label>S <input type="number" id="s" step="0.1" aria-label="South latitude"></label>
-      <label>E <input type="number" id="e" step="0.1" aria-label="East longitude"></label>
-      <label>N <input type="number" id="n" step="0.1" aria-label="North latitude"></label>
-    </div>
-    <div class="row">
-      <span class="lbl">Dates</span>
       <input type="date" id="from" aria-label="From date"> <span style="color:var(--text-3)">to</span> <input type="date" id="to" aria-label="To date">
       <select id="quick" aria-label="Date presets"></select>
     </div>
-    <details class="more"><summary>More options</summary>
-      <div class="row">
-        <span class="lbl">Sensors</span>
-        <label class="chk"><input type="checkbox" id="sM" checked><i class="sw" style="background:var(--modis)"></i>MODIS</label>
-        <label class="chk"><input type="checkbox" id="sV" checked><i class="sw" style="background:var(--viirs)"></i>VIIRS</label>
-        <span class="lbl" style="margin-left:10px">Confidence</span>
-        <select id="conf" aria-label="Minimum confidence"><option value="0">All</option><option value="1">Nominal and high</option><option value="2">High only</option></select>
-      </div>
-    </details>
+    <div id="map"></div>
+    <div class="row" style="margin-top:8px">
+      <p class="note grow" id="mapnote" style="margin:0"></p>
+      <details class="more"><summary>Exact coordinates and confidence</summary>
+        <div class="row">
+          <label>W <input type="number" id="w" step="0.1" aria-label="West longitude"></label>
+          <label>S <input type="number" id="s" step="0.1" aria-label="South latitude"></label>
+          <label>E <input type="number" id="e" step="0.1" aria-label="East longitude"></label>
+          <label>N <input type="number" id="n" step="0.1" aria-label="North latitude"></label>
+          <span class="lbl">Confidence</span>
+          <select id="conf" aria-label="Minimum confidence"><option value="0">All</option><option value="1">Nominal and high</option><option value="2">High only</option></select>
+        </div>
+      </details>
+    </div>
   </section>
 
-  <div class="layout">
-    <section class="card">
-      <div id="map"></div>
-      <p class="note" id="mapnote"></p>
-    </section>
-    <section class="tiles" id="tiles"></section>
-  </div>
+  <section class="tiles" id="tiles"></section>
 
   <section class="card">
-    <div class="row" style="margin-bottom:6px"><h2>Fire activity over time</h2><span class="legend" id="leg1"></span><span class="grow"></span>
-      <div class="seg" id="units" role="group" aria-label="Scale"><button data-u="harm" aria-pressed="true" title="MODIS is the reference; VIIRS is converted to MODIS units">MODIS units</button><button data-u="raw" aria-pressed="false" title="Each sensor as detected, no conversion">Unconverted</button></div>
-      <div class="seg" id="view" role="group" aria-label="Chart view"><button data-v="one" aria-pressed="true">Combined</button><button data-v="sensors" aria-pressed="false">By sensor</button></div>
+    <div class="row" style="margin-bottom:6px"><h2>Fire activity over time: true VIIRS vs model prediction</h2><span class="grow"></span>
       <span class="dl" data-chart="monthly"><button data-f="png">PNG</button><button data-f="svg">SVG</button></span></div>
+    <div class="legend" id="leg1"></div>
     <div class="chart" id="monthly"></div>
     <p class="note" id="chnote"></p>
   </section>
@@ -157,9 +151,26 @@ table.t td.l { color: var(--text-2); }
     <section class="card">
       <div class="row" style="margin-bottom:6px"><h2>Fire season</h2><span class="grow"></span><span class="dl" data-chart="season"><button data-f="png">PNG</button><button data-f="svg">SVG</button></span></div>
       <div class="chart" id="season"></div>
-      <p class="note">Average activity per sampled day in each calendar month.</p>
+      <p class="note">Fire activity per sampled day in each calendar month (true VIIRS, or the model prediction before 2012).</p>
     </section>
   </div>
+
+  <section class="card" id="harmcard">
+    <h2>How the data was harmonized</h2>
+    <p class="note" id="harmintro" style="margin-top:4px"></p>
+    <div class="steps">
+      <div class="step"><div class="k">Step 1 · Raw detections</div><div class="v" id="r1"></div>
+        <p>VIIRS pixels are 375 m, MODIS pixels 1 km, so one fire lights up several VIIRS pixels and VIIRS counts far more than MODIS.</p><div class="chart" id="st1"></div></div>
+      <div class="step"><div class="k">Step 2 · Consolidate same-pass VIIRS pixels</div><div class="v" id="r2"></div>
+        <p>VIIRS pixels in the same 1 km cell on the same satellite pass are counted as one fire. This is the <b>true VIIRS</b> record.</p><div class="chart" id="st2"></div></div>
+      <div class="step"><div class="k">Step 3 · Predict VIIRS from MODIS = model prediction</div><div class="v" id="r3"></div>
+        <p>A model trained on 2012 onward learns true VIIRS from MODIS. Run on 2000–2011, it gives the VIIRS that would probably have been seen: the <b>model prediction</b>.</p><div class="chart" id="st3"></div></div>
+    </div>
+    <div class="two">
+      <div><h3>Model prediction vs true VIIRS, each month</h3><div class="chart" id="scatter"></div><p class="note" id="scnote"></p></div>
+      <div><h3>How close the model prediction is</h3><table class="t" id="harmtbl"></table><p class="note" id="harmnote"></p></div>
+    </div>
+  </section>
 
   <section class="card">
     <h2>Download this selection</h2>
@@ -171,7 +182,7 @@ table.t td.l { color: var(--text-2); }
       <button class="btn" data-dl="fires">Recorded fires CSV</button>
       <button class="btn" data-dl="json">All numbers (JSON)</button>
     </div>
-    <p class="note">The report has the summary, charts, map, recorded fires and method in one file you can open, print or share. The link in your address bar reopens this exact view.</p>
+    <p class="note">The report has the summary, charts, map, recorded fires, the harmonization check and the method in one file you can open, print or share. The link in your address bar reopens this exact view.</p>
   </section>
 
   <p class="note" id="foot"></p>
