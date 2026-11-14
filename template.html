@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MODIS vs VIIRS fire detections</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f4f3f0; --surface: #fcfcfb; --border: #e2e0da; --grid: #e9e7e2;
+  --text: #0b0b0b; --text-2: #52514e; --text-3: #85837c;
+  --modis: #2a78d6; --viirs: #eb6834; --band: rgba(11,11,11,.07);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #111110; --surface: #1a1a19; --border: #33322f; --grid: #2a2927;
+    --text: #f0efec; --text-2: #c3c2b7; --text-3: #8d8c84;
+    --modis: #3987e5; --viirs: #d95926; --band: rgba(240,239,236,.09);
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 40px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 0; }
+.sub { color: var(--text-2); margin: 0 0 18px; max-width: 78ch; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.tile .k { color: var(--text-2); font-size: 12.5px; }
+.tile .v { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.tile .n { color: var(--text-3); font-size: 12px; }
+.row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.row .grow { flex: 1; }
+.legend { display: flex; gap: 14px; color: var(--text-2); font-size: 13px; }
+.sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--text-2); padding: 5px 11px; font: inherit; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--band); color: var(--text); font-weight: 600; }
+#chart { width: 100%; height: 340px; display: block; cursor: crosshair; }
+#chart text { fill: var(--text-3); font-size: 11.5px; }
+#chart .lbl { fill: var(--text-2); font-weight: 600; }
+.chartwrap { position: relative; }
+#tip, #maptip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 14px rgba(0,0,0,.14);
+  white-space: nowrap; display: none; z-index: 1000; font-variant-numeric: tabular-nums; }
+#tip b { display: block; margin-bottom: 3px; }
+#tip .muted { color: var(--text-3); }
+.maps { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; position: relative; }
+@media (max-width: 720px) { .maps { grid-template-columns: 1fr; } }
+.maphead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font-size: 13px; }
+.maphead span:last-child { color: var(--text-2); font-variant-numeric: tabular-nums; }
+.map { height: 460px; border-radius: 8px; border: 1px solid var(--border); background: var(--page); }
+.empty { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; z-index: 500;
+  color: var(--text-2); background: color-mix(in srgb, var(--surface) 70%, transparent); border-radius: 8px; pointer-events: none; }
+.mapbox { position: relative; }
+.base { filter: opacity(.85); }
+@media (prefers-color-scheme: dark) { .base { filter: grayscale(1) invert(1) brightness(.8) opacity(.6); } }
+#year { flex: 1; min-width: 160px; accent-color: var(--text-2); }
+#yearlbl { font-size: 20px; font-weight: 650; width: 3.2em; font-variant-numeric: tabular-nums; }
+button.play { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 7px; padding: 5px 12px; font: inherit; cursor: pointer; }
+.note { color: var(--text-3); font-size: 12.5px; margin: 8px 0 0; }
+.warn { border-left: 3px solid var(--text-3); padding: 2px 0 2px 10px; color: var(--text-2); margin: 0 0 14px; display: none; }
+.df { overflow-x: auto; margin: 6px 0 14px; }
+.df table { border-collapse: collapse; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.df th, .df td { padding: 2px 7px; text-align: right; white-space: nowrap; }
+.df thead th { border-bottom: 1px solid var(--border); color: var(--text); }
+.df tbody th { color: var(--text-2); font-weight: 600; }
+.df tbody tr:hover { background: var(--band); }
+.df .shape { color: var(--text-3); font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin-top: 4px; }
+.dfname { font: 600 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text-2); margin: 10px 0 0; }
+select, button.step { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 7px; padding: 5px 9px; font: inherit; cursor: pointer; }
+a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MODIS vs VIIRS fire detections — <span id="region"></span></h1>
+  <p class="sub">Active-fire detections from NASA FIRMS for this region, sampled monthly from the start of the MODIS record (November 2000) to today.
+    MODIS sees fires at 1 km resolution; VIIRS, launched in 2012, sees them at 375 m and so catches many smaller and cooler fires.</p>
+  <p class="warn" id="partial"></p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <div class="row">
+      <h2>Fire detections per day</h2>
+      <div class="legend"><span><i class="sw" style="background:var(--modis)"></i>MODIS (Terra + Aqua)</span><span><i class="sw" style="background:var(--viirs)"></i>VIIRS (Suomi NPP)</span></div>
+      <span class="grow"></span>
+      <div class="seg" id="mode"><button data-m="month" aria-pressed="true">Monthly</button><button data-m="year" aria-pressed="false">Yearly</button></div>
+    </div>
+    <div class="chartwrap"><svg id="chart"></svg><div id="tip"></div></div>
+    <p class="note">Average detections per day over the sampled days in each period. Click the chart to show that year on the maps.</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <h2>Where the detections were</h2>
+      <button class="play" id="play">▶ Play</button>
+      <input type="range" id="year" step="1">
+      <span id="yearlbl"></span>
+    </div>
+    <div class="maps">
+      <div><div class="maphead"><span><i class="sw" style="background:var(--modis)"></i><b>MODIS</b> · 1 km</span><span id="cM"></span></div>
+        <div class="mapbox"><div class="map" id="mapM"></div><div class="empty" id="eM"></div></div></div>
+      <div><div class="maphead"><span><i class="sw" style="background:var(--viirs)"></i><b>VIIRS</b> · 375 m</span><span id="cV"></span></div>
+        <div class="mapbox"><div class="map" id="mapV"></div><div class="empty" id="eV"></div></div></div>
+      <div id="maptip"></div>
+    </div>
+    <p class="note">Detection coordinates binned to a <span id="cellnote"></span>° grid (about 5 km); darker cells had more detections in that year's sampled days. The two maps pan and zoom together.</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <h2>The raw values FIRMS returns</h2>
+      <button class="step" id="prevM" aria-label="Previous month">‹</button>
+      <select id="month" aria-label="Sample month"></select>
+      <button class="step" id="nextM" aria-label="Next month">›</button>
+      <span class="grow"></span>
+      <div class="seg" id="dfmode"><button data-m="head" aria-pressed="true">df.head(10)</button><button data-m="desc" aria-pressed="false">df.describe()</button></div>
+    </div>
+    <p class="note" style="margin:0 0 6px">The same 5-day window and the same region from each sensor, exactly as the API returned it, for every month where both have detections.</p>
+    <div id="dfs"></div>
+    <p class="note">How the two differ: MODIS reports <code>brightness</code> (channel 21/22) and <code>bright_t31</code> in kelvin with a 0–100 <code>confidence</code>;
+      VIIRS reports <code>bright_ti4</code> and <code>bright_ti5</code> with confidence as <code>l</code>/<code>n</code>/<code>h</code> (low/nominal/high).
+      <code>scan</code> and <code>track</code> are the pixel size in km — about 1 km and up for MODIS, about 0.4 km for VIIRS. <code>frp</code> is fire radiative power in MW.</p>
+  </div>
+
+  <p class="note">Source: NASA FIRMS area API — MODIS Collection 6.1 (standard + near-real-time) and VIIRS S-NPP 375 m (standard + near-real-time).
+    MODIS counts combine two satellites (Terra, and Aqua from mid-2002); VIIRS counts are from Suomi NPP only. All detection types and confidence levels are included.
+    Data built <span id="gen"></span>. Table view: <a href="monthly.csv">monthly.csv</a>.</p>
+</main>
+
+<script>
+const D = /*DATA*/null;
+const S = { MODIS: D.sensors.MODIS, VIIRS: D.sensors.VIIRS };
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = n => n >= 100 ? Math.round(n).toLocaleString() : n >= 10 ? n.toFixed(1) : n.toFixed(2);
+const $ = id => document.getElementById(id);
+$('region').textContent = D.name; $('gen').textContent = D.generated; $('cellnote').textContent = D.cell;
+
+// ---- coverage + headline tiles -------------------------------------------
+const cov = s => { let g = 0, p = 0; s.monthly.forEach(r => { g += r[2]; p += r[3]; }); return g / p; };
+const covM = cov(S.MODIS), covV = cov(S.VIIRS);
+$('partial').style.display = 'block';
+$('partial').textContent = `This is a sample, not the full record: 5 days from every month (the 13th–17th), about ${Math.round(covM * 100)}% of all days. ` +
+  `Rates are averaged over those sampled days; counts on the maps and tiles are for the sampled days only.`;
+const total = s => s.monthly.reduce((a, r) => a + r[1], 0);
+// like-for-like ratio: only months where both sensors have downloaded days
+const mIdx = Object.fromEntries(S.MODIS.monthly.map(r => [r[0], r]));
+let rm = 0, rv = 0;
+S.VIIRS.monthly.forEach(v => { const m = mIdx[v[0]]; if (m && m[2] && v[2]) { rm += m[1] / m[2] * v[3]; rv += v[1] / v[2] * v[3]; } });
+const partial = ' in sample';
+$('tiles').innerHTML = [
+  ['MODIS detections' + partial, total(S.MODIS).toLocaleString(), `${S.MODIS.first.slice(0, 4)}–${S.MODIS.last.slice(0, 4)}`],
+  ['VIIRS detections' + partial, total(S.VIIRS).toLocaleString(), `${S.VIIRS.first.slice(0, 4)}–${S.VIIRS.last.slice(0, 4)}`],
+  ['VIIRS detections per MODIS detection', rm ? (rv / rm).toFixed(1) + '×' : '–', `over the shared record, ${S.VIIRS.first.slice(0, 4)} onward`],
+].map(t => `<div class="tile"><div class="k">${t[0]}</div><div class="v">${t[1]}</div><div class="n">${t[2]}</div></div>`).join('');
+
+// ---- time series ----------------------------------------------------------
+const T0 = 2000 + 10 / 12, T1 = +S.MODIS.last.slice(0, 4) + (+S.MODIS.last.slice(5, 7)) / 12;
+function series(s, mode) {           // -> [{t, w, label, v}] ; v = mean detections/day, null if nothing downloaded
+  if (mode === 'month') return s.monthly.map(r => {
+    const y = +r[0].slice(0, 4), m = +r[0].slice(5, 7);
+    return { t: y + (m - 0.5) / 12, y, label: new Date(y, m - 1).toLocaleString('en', { month: 'short', year: 'numeric' }), v: r[2] ? r[1] / r[2] : null };
+  });
+  return Object.entries(s.years).map(([y, r]) => ({ t: +y + 0.5, y: +y, label: y, v: r.days ? r.count / r.days : null }));
+}
+let mode = 'month', selYear, ser, sc;
+const svg = $('chart'), NS = 'http://www.w3.org/2000/svg';
+const el = (n, a, txt) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
+
+function drawChart() {
+  const W = svg.clientWidth, H = svg.clientHeight, m = { l: 46, r: 14, t: 14, b: 26 };
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.innerHTML = '';
+  ser = { MODIS: series(S.MODIS, mode), VIIRS: series(S.VIIRS, mode) };
+  const max = Math.max(1, ...ser.MODIS.concat(ser.VIIRS).map(p => p.v || 0));
+  const step = [1, 2, 5].map(k => k * 10 ** Math.floor(Math.log10(max / 4))).concat(10 ** Math.ceil(Math.log10(max / 4))).find(s => max / s <= 5);
+  const top = Math.ceil(max / step) * step;
+  const x = t => m.l + (t - T0) / (T1 - T0) * (W - m.l - m.r), y = v => H - m.b - v / top * (H - m.t - m.b);
+  sc = { x, y, W, H, m };
+  // selected-year band
+  svg.append(el('rect', { x: x(Math.max(T0, selYear)), y: m.t, width: Math.max(0, x(Math.min(T1, selYear + 1)) - x(Math.max(T0, selYear))), height: H - m.t - m.b, fill: css('--band') }));
+  for (let v = 0; v <= top + 1e-9; v += step) {
+    svg.append(el('line', { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), stroke: css('--grid'), 'stroke-width': 1 }));
+    svg.append(el('text', { x: m.l - 8, y: y(v) + 4, 'text-anchor': 'end' }, v.toLocaleString()));
+  }
+  const every = W < 620 ? 5 : 2;
+  for (let yr = 2002; yr <= T1; yr += every) svg.append(el('text', { x: x(yr), y: H - 8, 'text-anchor': 'middle' }, yr));
+  // VIIRS start marker
+  const vs = +S.VIIRS.first.slice(0, 4) + (+S.VIIRS.first.slice(5, 7) - 1) / 12;
+  svg.append(el('line', { x1: x(vs), x2: x(vs), y1: m.t, y2: H - m.b, stroke: css('--text-3'), 'stroke-dasharray': '3 3', 'stroke-width': 1 }));
+  svg.append(el('text', { x: x(vs) - 6, y: m.t + 10, 'text-anchor': 'end' }, 'VIIRS record begins'));
+  for (const k of ['MODIS', 'VIIRS']) {
+    let d = '', pen = false;
+    ser[k].forEach(p => { if (p.v == null) { pen = false; return; } d += (pen ? 'L' : 'M') + x(p.t).toFixed(1) + ' ' + y(p.v).toFixed(1); pen = true; });
+    svg.append(el('path', { d, fill: 'none', stroke: css(k === 'MODIS' ? '--modis' : '--viirs'), 'stroke-width': mode === 'year' ? 2 : 1.5, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+  }
+  svg.append(el('g', { id: 'hov' }));
+}
+function nearest(arr, t) { let b = null; for (const p of arr) if (!b || Math.abs(p.t - t) < Math.abs(b.t - t)) b = p; return b; }
+svg.addEventListener('mousemove', e => {
+  const r = svg.getBoundingClientRect(), { x, y, W, H, m } = sc;
+  const t = T0 + (e.clientX - r.left - m.l) / (W - m.l - m.r) * (T1 - T0);
+  const a = nearest(ser.MODIS, t), b = ser.VIIRS.find(p => p.label === a.label);
+  const g = $('hov'); g.innerHTML = '';
+  g.append(el('line', { x1: x(a.t), x2: x(a.t), y1: m.t, y2: H - m.b, stroke: css('--text-3'), 'stroke-width': 1 }));
+  [[a, '--modis'], [b, '--viirs']].forEach(([p, c]) => p && p.v != null &&
+    g.append(el('circle', { cx: x(p.t), cy: y(p.v), r: 4, fill: css(c), stroke: css('--surface'), 'stroke-width': 2 })));
+  const val = p => !p ? '<span class="muted">not launched</span>' : p.v == null ? '<span class="muted">no sample</span>' : fmt(p.v) + ' / day';
+  const tip = $('tip');
+  tip.innerHTML = `<b>${a.label}</b><i class="sw" style="background:var(--modis)"></i>MODIS&nbsp; ${val(a)}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS&nbsp;&nbsp; ${val(b)}` +
+    (a.v && b && b.v ? `<br><span class="muted">VIIRS saw ${(b.v / a.v).toFixed(1)}× as many</span>` : '');
+  tip.style.display = 'block';
+  const px = x(a.t), tw = tip.offsetWidth;
+  tip.style.left = (px + 14 + tw > W ? px - tw - 14 : px + 14) + 'px'; tip.style.top = (m.t + 4) + 'px';
+});
+svg.addEventListener('mouseleave', () => { $('tip').style.display = 'none'; $('hov').innerHTML = ''; });
+svg.addEventListener('click', e => {
+  const r = svg.getBoundingClientRect(), { W, m } = sc;
+  setYear(Math.floor(T0 + (e.clientX - r.left - m.l) / (W - m.l - m.r) * (T1 - T0)));
+});
+$('mode').addEventListener('click', e => {
+  if (!e.target.dataset.m) return;
+  mode = e.target.dataset.m;
+  [...$('mode').children].forEach(b => b.setAttribute('aria-pressed', b === e.target));
+  drawChart();
+});
+addEventListener('resize', drawChart);
+
+// ---- maps -----------------------------------------------------------------
+const [west, south, east, north] = D.bbox;
+const maps = {}, layers = {}, lookup = {};
+for (const [k, id] of [['MODIS', 'mapM'], ['VIIRS', 'mapV']]) {
+  const mp = maps[k] = L.map(id, { renderer: L.canvas(), zoomSnap: 0.25, attributionControl: k === 'VIIRS' });
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    { attribution: 'Basemap © Esri · Fire data: NASA FIRMS', maxZoom: 12, className: 'base' }).addTo(mp);
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', { maxZoom: 12, className: 'base' }).addTo(mp);
+  mp.fitBounds([[south, west], [north, east]]);
+  layers[k] = L.layerGroup().addTo(mp);
+  mp.on('mousemove', e => {
+    const ix = Math.floor((e.latlng.lng - west) / D.cell), iy = Math.floor((e.latlng.lat - south) / D.cell), key = ix + ',' + iy;
+    const cm = lookup.MODIS[key] || 0, cv = lookup.VIIRS[key] || 0, tip = $('maptip');
+    if (!cm && !cv) { tip.style.display = 'none'; return; }
+    tip.innerHTML = `<b>${(south + (iy + .5) * D.cell).toFixed(2)}°, ${(west + (ix + .5) * D.cell).toFixed(2)}°</b> · ${selYear}<br>` +
+      `<i class="sw" style="background:var(--modis)"></i>MODIS&nbsp; ${cm.toLocaleString()}<br><i class="sw" style="background:var(--viirs)"></i>VIIRS&nbsp;&nbsp; ${S.VIIRS.years[selYear] ? cv.toLocaleString() : '–'}`;
+    tip.style.display = 'block';
+    const box = document.querySelector('.maps').getBoundingClientRect();
+    tip.style.left = Math.min(e.originalEvent.clientX - box.left + 14, box.width - tip.offsetWidth - 4) + 'px';
+    tip.style.top = (e.originalEvent.clientY - box.top + 14) + 'px';
+  });
+  mp.on('mouseout', () => $('maptip').style.display = 'none');
+}
+// keep the two maps in step
+let syncing = false;
+const link = (a, b) => a.on('move', () => { if (syncing) return; syncing = true; b.setView(a.getCenter(), a.getZoom(), { animate: false }); syncing = false; });
+link(maps.MODIS, maps.VIIRS); link(maps.VIIRS, maps.MODIS);
+
+function drawMap(k, lbl, emp) {
+  const yr = S[k].years[selYear], color = css(k === 'MODIS' ? '--modis' : '--viirs');
+  layers[k].clearLayers(); lookup[k] = {};
+  const empty = $(emp);
+  if (!yr) { empty.style.display = 'flex'; empty.textContent = `${k} was not in orbit yet`; $(lbl).textContent = ''; return; }
+  empty.style.display = yr.days ? 'none' : 'flex'; empty.textContent = 'No sample for this year';
+  const c = yr.cells; let max = 1;
+  for (let i = 2; i < c.length; i += 3) max = Math.max(max, c[i]);
+  for (let i = 0; i < c.length; i += 3) {
+    lookup[k][c[i] + ',' + c[i + 1]] = c[i + 2];
+    const lo = west + c[i] * D.cell, la = south + c[i + 1] * D.cell;
+    L.rectangle([[la, lo], [la + D.cell, lo + D.cell]], { stroke: false, fillColor: color, interactive: false,
+      fillOpacity: 0.3 + 0.65 * Math.log(c[i + 2]) / Math.log(Math.max(max, 2)) }).addTo(layers[k]);
+  }
+  $(lbl).textContent = `${yr.count.toLocaleString()} detections` + ` in ${yr.days} sampled days`;
+}
+// ---- raw DataFrame view -----------------------------------------------------
+const months = Object.keys(S.MODIS.samples), sel = $('month');
+let dfmode = 'head';
+const esc = v => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const num = v => v == null ? 'NaN' : Number(v).toFixed(6);
+function dfTable(k, key) {
+  const d = S[k].samples[key], end = new Date(d.start); end.setUTCDate(end.getUTCDate() + 4);
+  let head, body, shape;
+  if (dfmode === 'head') {
+    head = d.cols;
+    body = d.head.map((r, i) => `<tr><th>${i}</th>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('');
+    shape = `[${d.n.toLocaleString()} rows x ${d.cols.length} columns]` + (d.n > d.head.length ? ` — first ${d.head.length} shown` : '');
+  } else {
+    head = Object.keys(d.desc);
+    body = ['count', 'mean', 'std', 'min', '25%', '50%', '75%', 'max'].map((st, i) =>
+      `<tr><th>${st}</th>${head.map(c => `<td>${num(d.desc[c][i])}</td>`).join('')}</tr>`).join('');
+    shape = `numeric columns of all ${d.n.toLocaleString()} rows`;
+  }
+  return `<p class="dfname"><i class="sw" style="background:var(--${k.toLowerCase()})"></i>${k.toLowerCase()} = ${d.feed}, ${d.start} to ${end.toISOString().slice(0, 10)}</p>` +
+    `<div class="df"><table><thead><tr><th></th>${head.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table><div class="shape">${shape}</div></div>`;
+}
+function drawDf() { $('dfs').innerHTML = months.length ? dfTable('MODIS', sel.value) + dfTable('VIIRS', sel.value) : '<p class="note">No overlapping samples.</p>'; }
+sel.innerHTML = months.map(k => `<option value="${k}">${new Date(k + '-15').toLocaleString('en', { month: 'long', year: 'numeric' })}</option>`).join('');
+sel.value = months.includes('2020-08') ? '2020-08' : months[months.length - 1];
+sel.addEventListener('change', drawDf);
+const stepM = d => { const i = months.indexOf(sel.value) + d; if (i >= 0 && i < months.length) { sel.value = months[i]; drawDf(); } };
+$('prevM').addEventListener('click', () => stepM(-1)); $('nextM').addEventListener('click', () => stepM(1));
+$('dfmode').addEventListener('click', e => {
+  if (!e.target.dataset.m) return;
+  dfmode = e.target.dataset.m;
+  [...$('dfmode').children].forEach(b => b.setAttribute('aria-pressed', b === e.target));
+  drawDf();
+});
+drawDf();
+
+const years = Object.keys(S.MODIS.years).map(Number);
+const slider = $('year'); slider.min = years[0]; slider.max = years[years.length - 1];
+function setYear(y) {
+  selYear = Math.max(+slider.min, Math.min(+slider.max, y));
+  slider.value = selYear; $('yearlbl').textContent = selYear;
+  drawMap('MODIS', 'cM', 'eM'); drawMap('VIIRS', 'cV', 'eV'); drawChart();
+}
+slider.addEventListener('input', () => setYear(+slider.value));
+let timer = null;
+$('play').addEventListener('click', () => {
+  if (timer) { clearInterval(timer); timer = null; $('play').textContent = '▶ Play'; return; }
+  $('play').textContent = '❚❚ Pause';
+  if (selYear >= +slider.max) setYear(+slider.min);
+  timer = setInterval(() => { if (selYear >= +slider.max) $('play').click(); else setYear(selYear + 1); }, 1100);
+});
+setYear(2020);
+</script>
+</body>
+</html>
