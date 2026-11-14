@@ -124,8 +124,6 @@ table.t td.l { color: var(--text-2); }
         <span class="lbl">Sensors</span>
         <label class="chk"><input type="checkbox" id="sM" checked><i class="sw" style="background:var(--modis)"></i>MODIS</label>
         <label class="chk"><input type="checkbox" id="sV" checked><i class="sw" style="background:var(--viirs)"></i>VIIRS</label>
-        <span class="lbl" style="margin-left:10px">VIIRS as</span>
-        <div class="seg" id="units" role="group" aria-label="VIIRS units"><button data-u="harm" aria-pressed="true">MODIS units (harmonized)</button><button data-u="raw" aria-pressed="false">raw detections</button></div>
         <span class="lbl" style="margin-left:10px">Confidence</span>
         <select id="conf" aria-label="Minimum confidence"><option value="0">All</option><option value="1">Nominal and high</option><option value="2">High only</option></select>
       </div>
@@ -142,7 +140,8 @@ table.t td.l { color: var(--text-2); }
 
   <section class="card">
     <div class="row" style="margin-bottom:6px"><h2>Fire activity over time</h2><span class="legend" id="leg1"></span><span class="grow"></span>
-      <div class="seg" id="view" role="group" aria-label="Chart view"><button data-v="one" aria-pressed="true">Harmonized</button><button data-v="sensors" aria-pressed="false">By sensor</button></div>
+      <div class="seg" id="units" role="group" aria-label="Scale"><button data-u="harm" aria-pressed="true" title="MODIS is the reference; VIIRS is converted to MODIS units">MODIS units</button><button data-u="viirs" aria-pressed="false" title="VIIRS is the reference; years before VIIRS are predicted from MODIS">VIIRS units</button><button data-u="raw" aria-pressed="false" title="Each sensor as detected, no conversion">Unconverted</button></div>
+      <div class="seg" id="view" role="group" aria-label="Chart view"><button data-v="one" aria-pressed="true">Combined</button><button data-v="sensors" aria-pressed="false">By sensor</button></div>
       <span class="dl" data-chart="monthly"><button data-f="png">PNG</button><button data-f="svg">SVG</button></span></div>
     <div class="chart" id="monthly"></div>
     <p class="note" id="chnote"></p>
